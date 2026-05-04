@@ -460,13 +460,13 @@ with st.sidebar:
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="model-info">📦 Formato: YOLOv8s · best.pt<br>⚡ Backend: PyTorch (CPU/GPU auto)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="model-info">📦 Formato: YOLOv8s · best.pt</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ── Umbral de confianza ────────────────────────────────────────────────
     st.markdown("**🎯 Umbral de confianza**")
-    conf_threshold = st.slider("conf", 0.1, 1.0, 0.35, 0.05, label_visibility="collapsed")
+    conf_threshold = st.slider("conf", 0.1, 1.0, 0.60, 0.05, label_visibility="collapsed")
     with st.expander("ℹ️ ¿Qué es?"):
         st.markdown(
             '<div style="font-size:0.82rem;color:#94a3b8;line-height:1.7;">'
