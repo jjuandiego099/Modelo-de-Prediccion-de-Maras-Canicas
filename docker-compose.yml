@@ -1,0 +1,36 @@
+version: "3.9"
+
+services:
+
+  # ── FastAPI — API de inferencia ──────────────────────────────────────────
+  api:
+    build: .
+    container_name: maras-api
+    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"       # API REST accesible en localhost:8000
+    volumes:
+      - .:/app            # Montar código local para desarrollo sin rebuild
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Streamlit — App web ──────────────────────────────────────────────────
+  streamlit:
+    build: .
+    container_name: maras-app
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+    ports:
+      - "8501:8501"       # App web accesible en localhost:8501
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - api
+    restart: unless-stopped
