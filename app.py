@@ -9,6 +9,7 @@ de inferencia (ej. http://api:8000 en docker-compose, o la IP pública de EC2).
 """
 
 import streamlit as st
+import base64
 import cv2
 import numpy as np
 import tempfile
@@ -21,8 +22,7 @@ from PIL import Image
 
 # ── URL de la API — configurable por variable de entorno o sidebar ─────────
 import os as _os
-DEFAULT_API_URL = _os.environ.get("API_BASE_URL", "http://localhost:8000")
-
+DEFAULT_API_URL = "http://localhost:8000"  # cambia esto después
 # ── Configuración de página ────────────────────────────────────────────────
 st.set_page_config(
     page_title="Detección de Maras",
@@ -259,41 +259,14 @@ with st.sidebar:
     st.markdown("### ⚙️ Configuración")
 
     # URL de la API
-    st.markdown("**🌐 URL de la API de inferencia**")
-    api_base_url = st.text_input(
-        "api_url",
-        value=DEFAULT_API_URL,
-        label_visibility="collapsed",
-        placeholder="http://localhost:8000",
-    )
+    ok, info = check_api_health(DEFAULT_API_URL)
+    if ok:
+        st.markdown('<div class="status-ok">✓ API conectada</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="status-err">❌ API no disponible</div>', unsafe_allow_html=True)
+    api_base_url = DEFAULT_API_URL
     api_base_url = api_base_url.rstrip("/")
 
-    # Verificar conexión con la API
-    if st.button("🔌 Verificar conexión", use_container_width=True):
-        with st.spinner("Conectando..."):
-            ok, info = check_api_health(api_base_url)
-        if ok:
-            st.markdown(
-                f'<div class="status-ok">✓ API lista &nbsp;|&nbsp; {info.get("num_classes","?")} clases</div>',
-                unsafe_allow_html=True,
-            )
-            st.session_state["api_ok"]    = True
-            st.session_state["api_names"] = info.get("classes", {})
-        else:
-            st.markdown(
-                f'<div class="status-err">❌ Sin conexión: {info.get("detail","")}</div>',
-                unsafe_allow_html=True,
-            )
-            st.session_state["api_ok"] = False
-
-    # Estado actual guardado en session
-    api_ok = st.session_state.get("api_ok", None)
-    if api_ok is True:
-        st.markdown('<div class="model-info">📡 Conectado a la API de inferencia</div>', unsafe_allow_html=True)
-    elif api_ok is False:
-        st.markdown('<div class="status-warn">⚠️ API no disponible — verifica la URL y que el contenedor esté corriendo.</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="model-info">ℹ️ Presiona "Verificar conexión" para comprobar la API</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -436,96 +409,66 @@ with tab_vid:
 
     if uploaded_vid:
         video_bytes = uploaded_vid.read()
+        clave_pred  = f"pred_{uploaded_vid.name}_{len(video_bytes)}"
+        clave_meta  = f"meta_{uploaded_vid.name}_{len(video_bytes)}"
 
-        # Guardar temporalmente para leer metadatos con OpenCV
-        tfile = tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_vid.name).suffix)
-        tfile.write(video_bytes)
-        tfile.flush()
-        tfile.close()
+        # Guardar video original en temp para mostrarlo
+        if f"orig_{clave_pred}" not in st.session_state:
+            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_vid.name).suffix)
+            tfile.write(video_bytes)
+            tfile.flush()
+            tfile.close()
+            st.session_state[f"orig_{clave_pred}"] = tfile.name
 
-        cap          = cv2.VideoCapture(tfile.name)
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        fps_vid      = cap.get(cv2.CAP_PROP_FPS) or 25
-        w_vid        = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h_vid        = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        duration     = total_frames / fps_vid if fps_vid > 0 else 0
-        cap.release()
+        orig_path = st.session_state[f"orig_{clave_pred}"]
 
-        st.markdown(
-            f'<div class="model-info">🎬 {uploaded_vid.name} &nbsp;|&nbsp; '
-            f'{total_frames} frames &nbsp;|&nbsp; {fps_vid:.1f} FPS &nbsp;|&nbsp; '
-            f'{w_vid}×{h_vid} &nbsp;|&nbsp; {duration:.1f}s</div>',
-            unsafe_allow_html=True,
-        )
+        col_orig, col_pred = st.columns(2, gap="large")
 
-        st.markdown('<div class="results-box"><h3>Video original</h3>', unsafe_allow_html=True)
-        st.video(tfile.name)
-        st.markdown('</div>', unsafe_allow_html=True)
+        with col_orig:
+            st.markdown("#### 🎬 Video original")
+            with open(orig_path, "rb") as f:
+                orig_b64 = base64.b64encode(f.read()).decode()
+            st.markdown(
+                f'<video controls style="width:100%;border-radius:6px;">'
+                f'<source src="data:video/mp4;base64,{orig_b64}" type="video/mp4">'
+                f'</video>',
+                unsafe_allow_html=True,
+            )
 
-        st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
+        with col_pred:
+            st.markdown("#### 🔍 Video con detecciones")
+            if clave_pred not in st.session_state:
+                with st.spinner("Procesando..."):
+                    t_start    = time.time()
+                    result_mp4 = api_predict_video(
+                        api_base_url, video_bytes, uploaded_vid.name,
+                        conf_threshold, iou_threshold, 1,
+                    )
+                    elapsed = time.time() - t_start
 
-        skip_frames = st.slider(
-            "Procesar 1 de cada N frames",
-            1, 10, 1, 1,
-            help="1 = todos los frames (más lento, mejor resultado). La API aplica el skip internamente.",
-        )
+                if result_mp4:
+                    st.session_state[clave_pred] = base64.b64encode(result_mp4).decode()
+                    st.session_state[clave_meta] = {"tiempo": elapsed}
+                else:
+                    st.error("Error al procesar. Verifica que la API esté corriendo.")
 
-        if st.button("▶️  Procesar video con detección", use_container_width=True):
-            with st.spinner("Enviando video a la API para inferencia... (puede tardar varios minutos)"):
-                t_start     = time.time()
-                result_mp4  = api_predict_video(
-                    api_base_url, video_bytes, uploaded_vid.name,
-                    conf_threshold, iou_threshold, skip_frames,
-                )
-                elapsed_vid = time.time() - t_start
-
-            if result_mp4:
-                # Guardar resultado para reproducir
-                out_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
-                out_file.write(result_mp4)
-                out_file.flush()
-                out_file.close()
-
-                st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
-                st.markdown("##### ✅ Procesamiento completado")
-
-                col_v1, col_v2 = st.columns(2)
-                with col_v1:
-                    st.markdown('<div class="results-box"><h3>Video original</h3>', unsafe_allow_html=True)
-                    st.video(tfile.name)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                with col_v2:
-                    st.markdown('<div class="results-box"><h3>Video con detecciones</h3>', unsafe_allow_html=True)
-                    st.video(out_file.name)
-                    st.markdown('</div>', unsafe_allow_html=True)
-
+            if clave_pred in st.session_state:
+                vid_b64 = st.session_state[clave_pred]
+                meta    = st.session_state[clave_meta]
                 st.markdown(
-                    f'<div class="metric-card" style="margin-top:1rem;">'
-                    f'<div class="val">{elapsed_vid:.1f}s</div>'
-                    f'<div class="lbl">Tiempo total de procesamiento</div></div>',
+                    f'<video controls style="width:100%;border-radius:6px;">'
+                    f'<source src="data:video/mp4;base64,{vid_b64}" type="video/mp4">'
+                    f'</video>',
                     unsafe_allow_html=True,
                 )
-
+                st.markdown(f'<div class="model-info">✅ Procesado en {meta["tiempo"]:.1f}s</div>', unsafe_allow_html=True)
                 st.download_button(
-                    label="⬇️  Descargar video con detecciones",
-                    data=result_mp4,
+                    label="⬇️ Descargar video con detecciones",
+                    data=base64.b64decode(vid_b64),
                     file_name=f"deteccion_{Path(uploaded_vid.name).stem}.mp4",
                     mime="video/mp4",
                     use_container_width=True,
-                )
-
-                try:
-                    os.unlink(out_file.name)
-                except Exception:
-                    pass
-
-        try:
-            os.unlink(tfile.name)
-        except Exception:
-            pass
-
-
-# ════════════════════════════════════════
+                )# ════════════════════════════════════════
 #  TAB 3 — CÁMARA EN VIVO
 # ════════════════════════════════════════
 with tab_cam:

@@ -13,6 +13,7 @@ import io
 import time
 import tempfile
 import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 from pydantic import BaseModel
@@ -26,7 +27,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── CORS — permite requests desde el frontend Streamlit ───────────────────
+# ── CORS ───────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,11 +35,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Carga del modelo al arrancar ───────────────────────────────────────────
+# ── Carga del modelo ───────────────────────────────────────────────────────
 model = None
 
 def find_model() -> Optional[str]:
-    """Busca best.pt automáticamente en la carpeta del proyecto."""
     base = Path(__file__).parent
     candidates = [
         base / "best.pt",
@@ -55,7 +55,6 @@ def find_model() -> Optional[str]:
 
 @app.on_event("startup")
 async def startup_event():
-    """Carga el modelo YOLOv8 al iniciar la API."""
     global model
     from ultralytics import YOLO
     model_path = find_model()
@@ -111,9 +110,8 @@ CLASS_COLORS = [
 ]
 
 
-# ── Función de inferencia ──────────────────────────────────────────────────
+# ── Inferencia ─────────────────────────────────────────────────────────────
 def run_inference(image_np: np.ndarray, conf: float = 0.35, iou: float = 0.45):
-    """Corre YOLOv8 sobre un array numpy BGR. Retorna lista de Detection."""
     results = model.predict(
         source=image_np,
         conf=conf,
@@ -143,7 +141,6 @@ def run_inference(image_np: np.ndarray, conf: float = 0.35, iou: float = 0.45):
 
 
 def draw_boxes(image_np: np.ndarray, detections: list[Detection]) -> np.ndarray:
-    """Dibuja bounding boxes sobre imagen BGR."""
     annotated = image_np.copy()
     for det in detections:
         color = CLASS_COLORS[det.class_id % len(CLASS_COLORS)]
@@ -160,25 +157,23 @@ def draw_boxes(image_np: np.ndarray, detections: list[Detection]) -> np.ndarray:
 
 @app.get("/", tags=["Info"])
 async def root():
-    """Info general de la API."""
     return {
         "name": "API Detección de Maras",
         "version": "1.1.0",
         "model": "YOLOv8s",
         "classes": model.names if model else "Modelo no cargado",
         "endpoints": {
-            "POST /predict":        "Recibe imagen → JSON con detecciones",
-            "POST /predict/image":  "Recibe imagen → PNG anotado",
-            "POST /predict/video":  "Recibe video → MP4 anotado",
-            "GET  /health":         "Estado del servidor y modelo",
-            "GET  /docs":           "Documentación Swagger",
+            "POST /predict":       "Recibe imagen → JSON con detecciones",
+            "POST /predict/image": "Recibe imagen → PNG anotado",
+            "POST /predict/video": "Recibe video → MP4 anotado",
+            "GET  /health":        "Estado del servidor y modelo",
+            "GET  /docs":          "Documentación Swagger",
         }
     }
 
 
 @app.get("/health", tags=["Info"])
 async def health():
-    """Verifica que el servidor y el modelo estén listos."""
     if model is None:
         raise HTTPException(status_code=503, detail="Modelo no cargado")
     return {
@@ -195,13 +190,6 @@ async def predict(
     conf: float = 0.35,
     iou:  float = 0.45,
 ):
-    """
-    Recibe una imagen y devuelve las detecciones en formato JSON.
-
-    - **file**: imagen a analizar (JPG, PNG, BMP, WEBP)
-    - **conf**: umbral de confianza (0.1 – 1.0)
-    - **iou**: umbral IoU para NMS (0.1 – 1.0)
-    """
     if model is None:
         raise HTTPException(status_code=503, detail="Modelo no disponible")
 
@@ -237,13 +225,6 @@ async def predict_image(
     conf: float = 0.35,
     iou:  float = 0.45,
 ):
-    """
-    Recibe una imagen y devuelve la misma imagen con los bounding boxes dibujados (PNG).
-
-    - **file**: imagen a analizar
-    - **conf**: umbral de confianza
-    - **iou**: umbral IoU para NMS
-    """
     if model is None:
         raise HTTPException(status_code=503, detail="Modelo no disponible")
 
@@ -272,15 +253,6 @@ async def predict_video(
     iou:         float = 0.45,
     skip_frames: int   = 1,
 ):
-    """
-    Recibe un video y devuelve el mismo video con bounding boxes dibujados (MP4).
-
-    - **file**: video a analizar
-    - **conf**: umbral de confianza (0.1 – 1.0)
-    - **iou**: umbral IoU para NMS (0.1 – 1.0)
-    - **skip_frames**: procesar 1 de cada N frames (1 = todos). Los frames omitidos
-      se copian sin anotaciones para mantener la duración original del video.
-    """
     if model is None:
         raise HTTPException(status_code=503, detail="Modelo no disponible")
 
@@ -288,7 +260,6 @@ async def predict_video(
     if file.content_type not in allowed_types and not file.filename.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
         raise HTTPException(status_code=400, detail="El archivo debe ser un video (MP4, AVI, MOV, MKV)")
 
-    # Guardar el video recibido en un temporal
     contents = await file.read()
     suffix   = Path(file.filename).suffix or ".mp4"
 
@@ -312,10 +283,10 @@ async def predict_video(
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(out_tmp.name, fourcc, fps_vid, (w_vid, h_vid))
 
-        frame_count  = 0
-        total_dets   = 0
-        processed    = 0
-        t_start      = time.time()
+        frame_count = 0
+        total_dets  = 0
+        processed   = 0
+        t_start     = time.time()
 
         while cap.isOpened():
             ret, frame = cap.read()
@@ -331,7 +302,6 @@ async def predict_video(
                 total_dets += len(dets)
                 processed  += 1
             else:
-                # Frame omitido — escribir sin anotaciones para mantener duración
                 writer.write(frame)
 
         cap.release()
@@ -339,9 +309,21 @@ async def predict_video(
 
         elapsed_ms = (time.time() - t_start) * 1000
 
-        # Leer el video resultante y devolverlo como streaming
-        with open(out_tmp.name, "rb") as f:
+        # Re-encodear a H.264 para compatibilidad con navegadores
+        fixed_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+        fixed_tmp.close()
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", out_tmp.name,
+            "-vcodec", "libx264",
+            "-pix_fmt", "yuv420p",
+            fixed_tmp.name
+        ], check=True)
+
+        with open(fixed_tmp.name, "rb") as f:
             video_bytes = f.read()
+
+        os.unlink(fixed_tmp.name)
 
         return StreamingResponse(
             io.BytesIO(video_bytes),
@@ -355,7 +337,6 @@ async def predict_video(
         )
 
     finally:
-        # Limpiar temporales siempre, incluso si hay error
         try:
             os.unlink(in_tmp.name)
         except Exception:
