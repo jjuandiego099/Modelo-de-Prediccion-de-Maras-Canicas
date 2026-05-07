@@ -220,7 +220,9 @@ def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
     verde  = counts.get("green marble", 0)
     azul   = counts.get("blue marble", 0)
     blanca = counts.get("white marble", 0)
-    negra  = counts.get("black marble", 0)0
+    negra  = counts.get("black marble", 0)
+    total  = len(detections)
+    conf_avg = round(float(np.mean([d["confidence"] for d in detections])), 4) if detections else 0.0
 
     conn = get_db_connection()
     if not conn:
