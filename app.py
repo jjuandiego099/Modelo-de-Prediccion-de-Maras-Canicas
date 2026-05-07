@@ -215,33 +215,12 @@ def get_db_connection():
 
 
 def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
-    """Guarda el resultado de una detección en PostgreSQL."""
     from collections import Counter
     counts = Counter(d["class_name"].lower() for d in detections)
-    verde  = counts.get("verde", 0) + counts.get("green", 0)
-    azul   = counts.get("azul", 0)  + counts.get("blue", 0)
-    blanca = counts.get("blanca", 0) + counts.get("white", 0)
-    negra  = counts.get("negra", 0)  + counts.get("black", 0)
-    total  = len(detections)
-    conf_avg = round(float(np.mean([d["confidence"] for d in detections])), 4) if detections else 0.0
-
-    conn = get_db_connection()
-    if not conn:
-        return False
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO detecciones (fuente, verde, azul, blanca, negra, total, confianza_avg, inferencia_ms)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (fuente, verde, azul, blanca, negra, total, conf_avg, inference_ms))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True
-    except Exception:
-        conn.close()
-        return False
-
+    verde  = counts.get("green marble", 0)
+    azul   = counts.get("blue marble", 0)
+    blanca = counts.get("white marble", 0)
+    negra  = counts.get("black marble", 0)
 
 def obtener_detecciones(limit: int = 10, offset: int = 0):
     """Retorna las últimas detecciones con paginación."""
