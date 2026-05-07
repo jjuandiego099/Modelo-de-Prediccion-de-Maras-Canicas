@@ -8,9 +8,9 @@ services:
     container_name: maras-api
     command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"       # API REST accesible en localhost:8000
+      - "127.0.0.1:8000:8000"
     volumes:
-      - .:/app            # Montar código local para desarrollo sin rebuild
+      - .:/app
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -26,7 +26,7 @@ services:
     container_name: maras-app
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     ports:
-      - "8501:8501"       # App web accesible en localhost:8501
+      - "127.0.0.1:8501:8501"
     volumes:
       - .:/app
     environment:
@@ -34,3 +34,35 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
+  # ── PostgreSQL — Base de datos ───────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    container_name: maras-db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: canicas123
+      POSTGRES_DB: detecciones
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ── n8n — Automatización de flujos ──────────────────────────────────────
+  n8n:
+    image: n8nio/n8n
+    container_name: maras-n8n
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      - WEBHOOK_URL=https://deteccion-maras-canicas.duckdns.org/n8n/
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  n8n_data:
