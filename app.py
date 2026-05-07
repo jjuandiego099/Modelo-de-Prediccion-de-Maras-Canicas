@@ -22,7 +22,7 @@ from PIL import Image
 
 # ── URL de la API — configurable por variable de entorno o sidebar ─────────
 import os as _os
-DEFAULT_API_URL = "http://3.212.170.240:8000"  # cambia esto después
+DEFAULT_API_URL = "http://api:8000"  # cambia esto después
 # ── Configuración de página ────────────────────────────────────────────────
 st.set_page_config(
     page_title="Detección de Maras",
