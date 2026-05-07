@@ -220,7 +220,25 @@ def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
     verde  = counts.get("green marble", 0)
     azul   = counts.get("blue marble", 0)
     blanca = counts.get("white marble", 0)
-    negra  = counts.get("black marble", 0)
+    negra  = counts.get("black marble", 0)0
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO detecciones (fuente, verde, azul, blanca, negra, total, confianza_avg, inferencia_ms)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (fuente, verde, azul, blanca, negra, total, conf_avg, inference_ms))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
 
 def obtener_detecciones(limit: int = 10, offset: int = 0):
     """Retorna las últimas detecciones con paginación."""
