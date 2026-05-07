@@ -202,7 +202,7 @@ def get_db_connection():
     try:
         import psycopg2
         conn = psycopg2.connect(
-            host=_os.getenv("DB_HOST", "postgres"),
+            host="postgres",
             port=_os.getenv("DB_PORT", "5432"),
             dbname=_os.getenv("DB_NAME", "detecciones"),
             user=_os.getenv("DB_USER", "admin"),

@@ -36,18 +36,23 @@ services:
     restart: unless-stopped
 
   # ── PostgreSQL — Base de datos ───────────────────────────────────────────
+  services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+      - "8501:8501"
+    depends_on:
+      - postgres
+
   postgres:
     image: postgres:15
-    container_name: maras-db
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: canicas123
       POSTGRES_DB: detecciones
     ports:
-      - "127.0.0.1:5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+      - "5432:5432"
 
   # ── n8n — Automatización de flujos ──────────────────────────────────────
   n8n:
