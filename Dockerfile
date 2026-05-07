@@ -11,6 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # ── Dependencias del sistema ───────────────────────────────────────────────
 # libgl1 y libglib2.0 son necesarias para OpenCV en Linux sin pantalla
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     libgl1 \
     libglib2.0-0 \
     libsm6 \
