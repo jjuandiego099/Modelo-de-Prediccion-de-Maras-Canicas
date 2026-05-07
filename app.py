@@ -785,7 +785,7 @@ with tab_stats:
 
             with col_summary:
                 total_general = sum(totales.values())
-                st.markdown('<div class="results-box">', unsafe_allow_html=True)
+               
                 st.markdown('<h3>Resumen</h3>', unsafe_allow_html=True)
 
                 clases_info = [
