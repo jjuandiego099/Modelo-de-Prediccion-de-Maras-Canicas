@@ -756,7 +756,7 @@ with tab_stats:
         # ── Botón de refresco ──────────────────────────────────────────────
         col_ref, col_empty = st.columns([1, 4])
         with col_ref:
-            if st.button("🔄 Actualizar", use_container_width=True):
+            if st.button("🔄 Actualizar", use_container_width=True, type="primary"):
                 st.rerun()
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
