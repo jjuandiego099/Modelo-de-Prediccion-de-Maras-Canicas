@@ -36,14 +36,6 @@ services:
     restart: unless-stopped
 
   # ── PostgreSQL — Base de datos ───────────────────────────────────────────
-  app:
-    build: .
-    ports:
-      - "8000:8000"
-      - "8501:8501"
-    depends_on:
-      - postgres
-
   postgres:
     image: postgres:15
     environment:
