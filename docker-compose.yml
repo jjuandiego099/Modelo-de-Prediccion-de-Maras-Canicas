@@ -36,7 +36,6 @@ services:
     restart: unless-stopped
 
   # ── PostgreSQL — Base de datos ───────────────────────────────────────────
-services:
   app:
     build: .
     ports:
