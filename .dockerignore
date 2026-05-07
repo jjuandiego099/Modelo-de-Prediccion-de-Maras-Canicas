@@ -1,0 +1,40 @@
+# Entorno virtual
+.venv/
+venv/
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Archivos temporales
+tmp/
+temp/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Modelos innecesarios
+*.onnx
+
+# Cache de streamlit
+.streamlit/
+
+# Docker
+docker-compose.override.yml
