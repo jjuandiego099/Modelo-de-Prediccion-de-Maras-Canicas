@@ -2,7 +2,6 @@ version: "3.9"
 
 services:
 
-  # ── FastAPI — API de inferencia ──────────────────────────────────────────
   api:
     build: .
     container_name: maras-api
@@ -20,7 +19,6 @@ services:
       timeout: 10s
       retries: 3
 
-  # ── Streamlit — App web ──────────────────────────────────────────────────
   streamlit:
     build: .
     container_name: maras-app
@@ -35,7 +33,6 @@ services:
       - api
     restart: unless-stopped
 
-  # ── PostgreSQL — Base de datos ───────────────────────────────────────────
   postgres:
     image: postgres:15
     environment:
@@ -44,21 +41,9 @@ services:
       POSTGRES_DB: detecciones
     ports:
       - "5432:5432"
-
-  # ── n8n — Automatización de flujos ──────────────────────────────────────
-  n8n:
-    image: n8nio/n8n
-    container_name: maras-n8n
-    ports:
-      - "127.0.0.1:5678:5678"
-    environment:
-      - WEBHOOK_URL=https://deteccion-maras-canicas.duckdns.org/n8n/
     volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      - postgres
+      - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
 volumes:
   postgres_data:
-  n8n_data:
