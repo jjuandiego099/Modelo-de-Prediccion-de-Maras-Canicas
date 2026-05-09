@@ -567,19 +567,8 @@ with tab_cam:
         unsafe_allow_html=True,
     )
 
-    for key, default in [("cam_frame_count", 0), ("cam_total_dets", 0), ("cam_class_counts", {})]:
-        if key not in st.session_state:
-            st.session_state[key] = default
-
-    col_ctrl1, col_ctrl2 = st.columns(2)
-    with col_ctrl1:
-        show_original_cam = st.toggle("Mostrar foto sin detecciones", value=False)
-    with col_ctrl2:
-        if st.button("🔁 Resetear estadísticas", use_container_width=True):
-            st.session_state["cam_frame_count"] = 0
-            st.session_state["cam_total_dets"]  = 0
-            st.session_state["cam_class_counts"] = {}
-
+    show_original_cam = st.toggle("Mostrar foto sin detecciones", value=False)
+    
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
     WEBRTC_OK  = False
@@ -642,29 +631,7 @@ with tab_cam:
 
         st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
-        stat_placeholder  = st.empty()
-        badge_placeholder = st.empty()
-
-        if ctx and ctx.state.playing:
-            fc  = st.session_state.get("cam_frame_count", 0)
-            td  = st.session_state.get("cam_total_dets", 0)
-            avg = round(td / fc, 1) if fc > 0 else 0
-            stat_placeholder.markdown(
-                "<div class='results-box'><h3>Estadísticas en vivo</h3>"
-                "🎞️ Frames: <strong>" + str(fc) + "</strong> &nbsp;|&nbsp; "
-                "🔍 Detecciones: <strong>" + str(td) + "</strong> &nbsp;|&nbsp; "
-                "📊 Promedio/frame: <strong>" + str(avg) + "</strong></div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                '<div class="results-box" style="text-align:center;padding:2rem;">'
-                '<div style="font-size:3rem;margin-bottom:1rem;">📹</div>'
-                '<div style="font-size:0.93rem;color:#64748b;font-family:monospace;line-height:2;">'
-                'Presiona <strong style="color:#00e5ff;">START</strong> para activar la cámara. '
-                'Cada frame se envía a la API de inferencia.</div></div>',
-                unsafe_allow_html=True,
-            )
+        
 
     st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
     st.markdown("##### 📸 Tomar foto con detección")
