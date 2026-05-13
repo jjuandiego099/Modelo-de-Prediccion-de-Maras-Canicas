@@ -7,7 +7,7 @@ services:
     container_name: maras-api
     command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "127.0.0.1:8000:8000"
+      - "0.0.0.0:8000:8000"
     volumes:
       - .:/app
     environment:
@@ -24,7 +24,7 @@ services:
     container_name: maras-app
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     ports:
-      - "127.0.0.1:8501:8501"
+      - "0.0.0.0:8501:8501"
     volumes:
       - .:/app
     environment:
