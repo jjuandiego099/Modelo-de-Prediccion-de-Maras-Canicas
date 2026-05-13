@@ -187,7 +187,7 @@ async def health():
 @app.post("/predict", response_model=PredictResponse, tags=["Inferencia"])
 async def predict(
     file: UploadFile = File(..., description="Imagen JPG, PNG o BMP"),
-    conf: float = 0.35,
+    conf: float = 0.5,
     iou:  float = 0.45,
 ):
     if model is None:
@@ -222,7 +222,7 @@ async def predict(
 @app.post("/predict/image", tags=["Inferencia"])
 async def predict_image(
     file: UploadFile = File(..., description="Imagen JPG, PNG o BMP"),
-    conf: float = 0.35,
+    conf: float = 0.5,
     iou:  float = 0.45,
 ):
     if model is None:
@@ -249,7 +249,7 @@ async def predict_image(
 @app.post("/predict/video", tags=["Inferencia"])
 async def predict_video(
     file: UploadFile = File(..., description="Video MP4, AVI, MOV o MKV"),
-    conf:        float = 0.35,
+    conf:        float = 0.5,
     iou:         float = 0.45,
     skip_frames: int   = 1,
 ):
