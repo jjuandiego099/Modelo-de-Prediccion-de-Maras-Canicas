@@ -1,17 +1,38 @@
-version: "3.9"
-
 services:
+
+  postgres:
+    image: postgres:15
+    container_name: maras-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: canicas123
+      POSTGRES_DB: detecciones
+    ports:
+      # Restringido a localhost igual que los demás servicios
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    # Healthcheck para saber cuándo Postgres está realmente listo para aceptar conexiones
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d detecciones"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   api:
     build: .
     container_name: maras-api
-    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy   # Espera a que Postgres esté listo
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -29,20 +50,16 @@ services:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+      # Variables de BD que app.py lee con os.getenv()
+      - DB_PORT=5432
+      - DB_NAME=detecciones
+      - DB_USER=admin
+      - DB_PASS=canicas123
     depends_on:
-      - api
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: canicas123
-      POSTGRES_DB: detecciones
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      api:
+        condition: service_healthy   # Espera a que la API haya cargado el modelo
+      postgres:
+        condition: service_healthy   # Espera a que Postgres esté listo
     restart: unless-stopped
 
 volumes:

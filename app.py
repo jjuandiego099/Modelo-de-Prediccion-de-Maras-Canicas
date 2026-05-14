@@ -8,27 +8,31 @@ el modelo localmente. Configura API_BASE_URL para apuntar al contenedor
 de inferencia (ej. http://api:8000 en docker-compose, o la IP pública de EC2).
 """
 
-import streamlit as st
-import base64
-import cv2
-import numpy as np
-import tempfile
-import os
-import time
-import io
-import requests
-from pathlib import Path
-from PIL import Image
+import streamlit as st  # Framework principal del frontend web
+import base64           # Codificación/decodificación Base64 (para incrustar videos en HTML)
+import cv2              # OpenCV: decodificación de imágenes y dibujo de bounding boxes
+import numpy as np      # Arrays numéricos para manipulación de imágenes
+import tempfile         # Archivos temporales en disco (para videos)
+import os               # Acceso al sistema de archivos
+import time             # Medición de tiempos de respuesta
+import io               # Flujos de bytes en memoria
+import requests         # Cliente HTTP para consumir la API FastAPI
+from pathlib import Path  # Manejo multiplataforma de rutas de archivos
+from PIL import Image     # Pillow: conversión de imágenes para descarga
 
 # ── URL de la API — configurable por variable de entorno o sidebar ─────────
+# Se importa 'os' como '_os' para evitar conflicto de nombres con el 'os' anterior
 import os as _os
-DEFAULT_API_URL = "http://api:8000"  # cambia esto después
+# URL base de la API de inferencia; en docker-compose el servicio se llama "api"
+DEFAULT_API_URL = "http://api:8000"  # Cambia por la IP/dominio público en producción
+
 # ── Configuración de página ────────────────────────────────────────────────
+# Debe llamarse antes de cualquier otro comando de Streamlit
 st.set_page_config(
     page_title="Detección de Maras",
     page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    layout="wide",                    # Usa todo el ancho disponible del navegador
+    initial_sidebar_state="expanded", # Sidebar visible al cargar la página
 )
 
 # ── CSS personalizado ──────────────────────────────────────────────────────
@@ -95,20 +99,31 @@ html, body, [data-testid="stAppViewContainer"] {
 """, unsafe_allow_html=True)
 
 # ── Colores y badges ───────────────────────────────────────────────────────
+# Colores BGR de cada clase para dibujar bounding boxes localmente (sin llamar a la API).
+# Deben coincidir exactamente con los definidos en api.py para coherencia visual.
 CLASS_COLORS = [
-    (0, 229, 255),
-    (255, 61, 87),
-    (255, 214, 10),
-    (160, 110, 255),
+    (0, 229, 255),    # Clase 0: Cian  (Mara Verde en el dataset)
+    (255, 61, 87),    # Clase 1: Rojo  (Mara Azul en el dataset)
+    (255, 214, 10),   # Clase 2: Amarillo (Mara Blanca en el dataset)
+    (160, 110, 255),  # Clase 3: Púrpura  (Mara Negra en el dataset)
 ]
+# Clases CSS correspondientes a cada ID de clase para los badges HTML del resumen
 BADGE_CLASSES = ["badge-0", "badge-1", "badge-2", "badge-3"]
 
 
 # ── Helpers de API ─────────────────────────────────────────────────────────
 
 def check_api_health(base_url: str) -> tuple[bool, dict]:
+    """
+    Verifica si la API de inferencia está disponible consultando el endpoint /health.
+    Se usa en el sidebar para mostrar el estado de conexión con un indicador visual.
+
+    Returns:
+        (True, datos_del_health) si la API responde con 200.
+        (False, detalle_del_error) si hay un error de conexión o código de estado != 200.
+    """
     try:
-        r = requests.get(f"{base_url}/health", timeout=5)
+        r = requests.get(f"{base_url}/health", timeout=5)  # Timeout corto para no bloquear la UI
         if r.status_code == 200:
             return True, r.json()
         return False, {"detail": r.text}
@@ -117,12 +132,20 @@ def check_api_health(base_url: str) -> tuple[bool, dict]:
 
 
 def api_predict_json(base_url, img_bytes, filename, conf, iou):
+    """
+    Envía una imagen a la API REST (/predict) y retorna las detecciones en formato JSON.
+    Se usa en los tabs de Imagen y Cámara para obtener los datos de cada detección
+    (clase, confianza, coordenadas) y dibujarlos localmente con draw_detections_local().
+
+    Returns:
+        Diccionario con las detecciones si la petición fue exitosa, o None si hubo error.
+    """
     try:
         r = requests.post(
             f"{base_url}/predict",
-            files={"file": (filename, img_bytes, "image/jpeg")},
-            params={"conf": conf, "iou": iou},
-            timeout=30,
+            files={"file": (filename, img_bytes, "image/jpeg")},  # Multipart form-data
+            params={"conf": conf, "iou": iou},  # Parámetros de umbral como query string
+            timeout=30,  # 30 segundos máximo de espera
         )
         if r.status_code == 200:
             return r.json()
@@ -134,6 +157,14 @@ def api_predict_json(base_url, img_bytes, filename, conf, iou):
 
 
 def api_predict_image(base_url, img_bytes, filename, conf, iou):
+    """
+    Envía una imagen a la API REST (/predict/image) y retorna los bytes del PNG anotado.
+    El servidor dibuja los bounding boxes y devuelve la imagen ya procesada.
+    Se usa para generar el archivo PNG de descarga (más calidad que el dibujo local).
+
+    Returns:
+        Bytes del PNG anotado si la petición fue exitosa, o None si hubo error.
+    """
     try:
         r = requests.post(
             f"{base_url}/predict/image",
@@ -142,7 +173,7 @@ def api_predict_image(base_url, img_bytes, filename, conf, iou):
             timeout=30,
         )
         if r.status_code == 200:
-            return r.content
+            return r.content  # Bytes crudos del PNG
         st.error(f"API error {r.status_code}: {r.text}")
         return None
     except Exception as e:
@@ -151,12 +182,22 @@ def api_predict_image(base_url, img_bytes, filename, conf, iou):
 
 
 def api_predict_video(base_url, video_bytes, filename, conf, iou, skip=1):
+    """
+    Envía un video a la API REST (/predict/video) y retorna los bytes del MP4 anotado.
+    El timeout es de 5 minutos porque el procesamiento de video puede tomar tiempo.
+
+    Args:
+        skip: Valor de skip_frames (1 = procesar cada frame, 2 = procesar 1 de cada 2, etc.)
+
+    Returns:
+        Bytes del MP4 procesado si la petición fue exitosa, o None si hubo error.
+    """
     try:
         r = requests.post(
             f"{base_url}/predict/video",
             files={"file": (filename, video_bytes, "video/mp4")},
             params={"conf": conf, "iou": iou, "skip_frames": skip},
-            timeout=300,
+            timeout=300,  # 5 minutos de timeout para videos largos
         )
         if r.status_code == 200:
             return r.content
@@ -168,6 +209,18 @@ def api_predict_video(base_url, video_bytes, filename, conf, iou, skip=1):
 
 
 def draw_detections_local(img_bgr, detections):
+    """
+    Dibuja bounding boxes directamente en el frontend sin llamar a la API.
+    Se usa en el tab de Imagen y Cámara para mostrar resultados rápidamente
+    mientras se descarga la versión de mayor calidad de la API en paralelo.
+
+    Args:
+        img_bgr: Imagen en formato BGR (tal como la decodifica OpenCV).
+        detections: Lista de diccionarios con las detecciones retornadas por /predict.
+
+    Returns:
+        Imagen anotada convertida a RGB (formato que espera st.image()).
+    """
     annotated = img_bgr.copy()
     for det in detections:
         cls_id = det["class_id"]
@@ -179,16 +232,28 @@ def draw_detections_local(img_bgr, detections):
         cv2.rectangle(annotated, (x1, y1 - th - 10), (x1 + tw + 8, y1), color, -1)
         cv2.putText(annotated, label, (x1 + 4, y1 - 5),
                     cv2.FONT_HERSHEY_DUPLEX, 0.55, (10, 12, 15), 1, cv2.LINE_AA)
-    return cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
+    return cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)  # OpenCV usa BGR; Streamlit espera RGB
 
 
 def detections_summary(detections):
+    """
+    Genera una cadena HTML con badges de colores que resume las detecciones por clase.
+    Por ejemplo: [green marble × 3] [blue marble × 1]
+    Si no hay detecciones, retorna un span con texto en gris.
+
+    Args:
+        detections: Lista de diccionarios con las detecciones.
+
+    Returns:
+        String HTML con los badges de cada clase detectada y su cantidad.
+    """
     if not detections:
         return '<span style="color:#64748b;font-size:0.85rem;">Sin detecciones</span>'
     from collections import Counter
-    counts = Counter(d["class_name"] for d in detections)
+    counts = Counter(d["class_name"] for d in detections)  # Cuenta por nombre de clase
     parts  = []
     for i, (name, count) in enumerate(counts.items()):
+        # Obtiene el ID de clase para asignar el color correcto del badge
         cls_ids   = [d["class_id"] for d in detections if d["class_name"] == name]
         badge_cls = BADGE_CLASSES[cls_ids[0] % 4] if cls_ids else "badge-0"
         parts.append(f'<span class="badge {badge_cls}">{name} × {count}</span>')
@@ -198,35 +263,60 @@ def detections_summary(detections):
 # ── Helpers de Base de Datos ───────────────────────────────────────────────
 
 def get_db_connection():
-    """Retorna una conexión a PostgreSQL usando variables de entorno."""
+    """
+    Crea y retorna una conexión a la base de datos PostgreSQL.
+    Los parámetros de conexión se leen de variables de entorno para mayor seguridad,
+    con valores por defecto para el entorno de desarrollo local.
+    El host 'postgres' corresponde al nombre del servicio en docker-compose.
+
+    Returns:
+        Objeto de conexión psycopg2 si tiene éxito, o None si falla la conexión.
+        Retornar None (en lugar de lanzar excepción) permite que la app siga
+        funcionando aunque la base de datos no esté disponible.
+    """
     try:
         import psycopg2
         conn = psycopg2.connect(
-            host="postgres",
-            port=_os.getenv("DB_PORT", "5432"),
+            host="postgres",                          # Nombre del servicio en docker-compose
+            port=_os.getenv("DB_PORT", "5432"),       # Puerto PostgreSQL (5432 por defecto)
             dbname=_os.getenv("DB_NAME", "detecciones"),
             user=_os.getenv("DB_USER", "admin"),
             password=_os.getenv("DB_PASS", "canicas123"),
-            connect_timeout=5,
+            connect_timeout=5,                        # No bloquear la UI más de 5 segundos
         )
         return conn
     except Exception:
-        return None
+        return None  # La app continúa sin persistencia si la BD no está disponible
 
 
 def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
+    """
+    Persiste el resultado de una inferencia en la tabla 'detecciones' de PostgreSQL.
+    Cuenta cuántos objetos de cada clase (Verde, Azul, Blanca, Negra) se detectaron,
+    calcula la confianza promedio y guarda el registro con la fuente de entrada.
+
+    Args:
+        fuente: Origen de la imagen ("imagen", "video" o "camara").
+        detections: Lista de detecciones retornada por la API.
+        inference_ms: Tiempo de inferencia en milisegundos reportado por la API.
+
+    Returns:
+        True si el registro se guardó correctamente, False si hubo algún error.
+    """
     from collections import Counter
+    # Cuenta las detecciones por nombre de clase (en minúsculas para consistencia)
     counts = Counter(d["class_name"].lower() for d in detections)
     verde  = counts.get("green marble", 0)
     azul   = counts.get("blue marble", 0)
     blanca = counts.get("white marble", 0)
     negra  = counts.get("black marble", 0)
     total  = len(detections)
+    # Confianza promedio de todas las detecciones (0 si no hay ninguna)
     conf_avg = round(float(np.mean([d["confidence"] for d in detections])), 4) if detections else 0.0
 
     conn = get_db_connection()
     if not conn:
-        return False
+        return False  # Sin conexión, no se puede guardar
     try:
         cur = conn.cursor()
         cur.execute("""
@@ -243,14 +333,26 @@ def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
 
 
 def obtener_detecciones(limit: int = 10, offset: int = 0):
-    """Retorna las últimas detecciones con paginación."""
+    """
+    Consulta el historial de detecciones con paginación para la tabla del tab Estadísticas.
+    Ordena de más reciente a más antiguo.
+
+    Args:
+        limit: Número máximo de registros a retornar (tamaño de página).
+        offset: Número de registros a saltar (para paginación).
+
+    Returns:
+        Tupla (filas, total_registros). Si hay error, retorna ([], 0).
+    """
     conn = get_db_connection()
     if not conn:
         return [], 0
     try:
         cur = conn.cursor()
+        # Total de registros para calcular el número de páginas en el frontend
         cur.execute("SELECT COUNT(*) FROM detecciones")
         total = cur.fetchone()[0]
+        # Registros de la página actual
         cur.execute("""
             SELECT id, fecha, fuente, verde, azul, blanca, negra, total, confianza_avg, inferencia_ms
             FROM detecciones
@@ -267,7 +369,14 @@ def obtener_detecciones(limit: int = 10, offset: int = 0):
 
 
 def obtener_totales_por_clase():
-    """Retorna suma total de cada clase para el gráfico comparativo."""
+    """
+    Calcula el total acumulado de cada clase de mara en toda la base de datos.
+    Se usa para el gráfico comparativo de barras en el tab de Estadísticas.
+
+    Returns:
+        Diccionario {"Verde": int, "Azul": int, "Blanca": int, "Negra": int},
+        o None si no hay conexión disponible.
+    """
     conn = get_db_connection()
     if not conn:
         return None
@@ -284,6 +393,7 @@ def obtener_totales_por_clase():
         row = cur.fetchone()
         cur.close()
         conn.close()
+        # Convierte None a 0 en caso de que la tabla esté vacía
         return {"Verde": row[0] or 0, "Azul": row[1] or 0, "Blanca": row[2] or 0, "Negra": row[3] or 0}
     except Exception:
         conn.close()
@@ -348,15 +458,19 @@ Ambos corren como contenedores Docker independientes en EC2 y se comunican por H
 with st.sidebar:
     st.markdown("### ⚙️ Configuración")
 
+    # Verifica la conexión con la API y muestra el estado visual
     ok, info = check_api_health(DEFAULT_API_URL)
     if ok:
         st.markdown('<div class="status-ok">✓ API conectada</div>', unsafe_allow_html=True)
     else:
         st.markdown('<div class="status-err">❌ API no disponible</div>', unsafe_allow_html=True)
+    # Se elimina la barra "/" final para evitar URLs malformadas en las peticiones
     api_base_url = DEFAULT_API_URL.rstrip("/")
 
     st.markdown("---")
     st.markdown("**🎯 Umbral de confianza**")
+    # Slider de confianza: valores entre 0.1 y 1.0, pasos de 0.05, default 0.60
+    # Un valor más alto reduce falsos positivos pero puede perder detecciones reales
     conf_threshold = st.slider("conf", 0.1, 1.0, 0.60, 0.05, label_visibility="collapsed")
     with st.expander("ℹ️ ¿Qué es?"):
         st.markdown(
@@ -370,6 +484,8 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("**📐 Umbral IoU (NMS)**")
+    # Slider de IoU para Non-Maximum Suppression:
+    # controla cuánto se solapan las cajas antes de considerar que son duplicadas
     iou_threshold = st.slider("iou", 0.1, 1.0, 0.45, 0.05, label_visibility="collapsed")
     with st.expander("ℹ️ ¿Qué es?"):
         st.markdown(
@@ -392,6 +508,8 @@ st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 
 
 # ── Tabs principales ───────────────────────────────────────────────────────
+# Se crean los 4 tabs de navegación de la interfaz.
+# Cada variable recibe el contexto del tab y se usa con 'with tab_X:' más abajo.
 tab_img, tab_vid, tab_cam, tab_stats = st.tabs([
     "📷  Imagen", "🎬  Video", "📹  Cámara en vivo", "📊  Estadísticas"
 ])
@@ -399,6 +517,9 @@ tab_img, tab_vid, tab_cam, tab_stats = st.tabs([
 
 # ════════════════════════════════════════
 #  TAB 1 — IMAGEN
+# Permite subir una imagen estática y obtener las detecciones del modelo.
+# Flujo: subir → mostrar original → llamar API /predict → dibujar boxes →
+#        mostrar métricas → tabla expandible → botón de descarga
 # ════════════════════════════════════════
 with tab_img:
     st.markdown("#### Subir imagen")
@@ -412,8 +533,8 @@ with tab_img:
     if uploaded_img:
         img_bytes = uploaded_img.read()
         nparr     = np.frombuffer(img_bytes, np.uint8)
-        img_bgr   = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        img_rgb   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_bgr   = cv2.imdecode(nparr, cv2.IMREAD_COLOR)   # Imagen en formato BGR
+        img_rgb   = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB) # Convertir a RGB para Streamlit
 
         col_orig, col_pred = st.columns(2)
         with col_orig:
@@ -421,6 +542,7 @@ with tab_img:
             st.image(img_rgb, use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
+        # Llama a la API y mide el tiempo total (incluye latencia de red)
         with st.spinner("Enviando imagen a la API..."):
             t0      = time.time()
             result  = api_predict_json(api_base_url, img_bytes, uploaded_img.name,
@@ -429,6 +551,7 @@ with tab_img:
 
         if result:
             detections    = result["detections"]
+            # Dibuja los boxes localmente para una respuesta visual inmediata
             annotated_rgb = draw_detections_local(img_bgr, detections)
 
             with col_pred:
@@ -436,7 +559,7 @@ with tab_img:
                 st.image(annotated_rgb, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-            # Guardar en BD
+            # Persiste el resultado en PostgreSQL para las estadísticas del tab 4
             guardar_deteccion("imagen", detections, result["inference_ms"])
 
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
@@ -484,6 +607,9 @@ with tab_img:
 
 # ════════════════════════════════════════
 #  TAB 2 — VIDEO
+# Permite subir un video y recibir el MP4 completo anotado fotograma a fotograma.
+# Para evitar procesar el video dos veces, el resultado se guarda en session_state
+# con una clave única basada en nombre y tamaño del archivo.
 # ════════════════════════════════════════
 with tab_vid:
     st.markdown("#### Subir video")
@@ -496,6 +622,8 @@ with tab_vid:
 
     if uploaded_vid:
         video_bytes = uploaded_vid.read()
+        # Clave única por archivo para cachear el resultado en session_state
+        # (evita reenviar el video a la API cada vez que Streamlit re-renderiza la página)
         clave_pred  = f"pred_{uploaded_vid.name}_{len(video_bytes)}"
         clave_meta  = f"meta_{uploaded_vid.name}_{len(video_bytes)}"
 
@@ -558,6 +686,9 @@ with tab_vid:
 
 # ════════════════════════════════════════
 #  TAB 3 — CÁMARA EN VIVO
+# Ofrece dos modos de captura:
+#   1. streamlit-webrtc: streaming de video en tiempo real fotograma a fotograma.
+#   2. st.camera_input: captura individual de fotos (fallback si webrtc no está disponible).
 # ════════════════════════════════════════
 with tab_cam:
     st.markdown("#### 📹 Detección en tiempo real — Cámara")
@@ -590,10 +721,20 @@ with tab_cam:
         _no_ann  = show_original_cam
 
         class MaraVideoProcessor(VideoProcessorBase):
+            """
+            Procesador de video para streamlit-webrtc.
+            Por cada fotograma recibido de la cámara:
+              - Si show_original_cam está activo, lo retorna sin modificar.
+              - Si no, lo codifica a JPEG, lo envía a la API /predict/image
+                y retorna el fotograma anotado recibido.
+            Si la petición a la API falla (timeout, error), retorna el frame original
+            para no interrumpir el flujo de video.
+            """
             def recv(self, frame):
-                img_bgr = frame.to_ndarray(format="bgr24")
+                img_bgr = frame.to_ndarray(format="bgr24")  # Convierte el frame a array NumPy BGR
                 if _no_ann:
-                    return av.VideoFrame.from_ndarray(img_bgr, format="bgr24")
+                    return av.VideoFrame.from_ndarray(img_bgr, format="bgr24")  # Sin anotaciones
+                # Codifica el frame como JPEG para enviarlo por HTTP
                 _, buf = cv2.imencode(".jpg", img_bgr)
                 jpg_bytes = buf.tobytes()
                 try:
@@ -601,19 +742,24 @@ with tab_cam:
                         f"{_api_url}/predict/image",
                         files={"file": ("frame.jpg", jpg_bytes, "image/jpeg")},
                         params={"conf": _conf, "iou": _iou},
-                        timeout=5,
+                        timeout=5,  # Timeout corto para no acumular latencia en el stream
                     )
                     if r.status_code == 200:
+                        # Decodifica la imagen anotada retornada por la API
                         nparr     = np.frombuffer(r.content, np.uint8)
                         annotated = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                        # Actualiza los contadores en session_state (visibles en la UI)
                         num_dets  = int(r.headers.get("X-Detections", 0))
                         st.session_state["cam_frame_count"] = st.session_state.get("cam_frame_count", 0) + 1
                         st.session_state["cam_total_dets"]  = st.session_state.get("cam_total_dets", 0) + num_dets
                         return av.VideoFrame.from_ndarray(annotated, format="bgr24")
                 except Exception:
-                    pass
+                    pass  # Si falla la API, continúa con el frame original sin anotar
                 return av.VideoFrame.from_ndarray(img_bgr, format="bgr24")
 
+        # Configuración de servidores STUN de Google para el establecimiento
+        # de la conexión WebRTC (NAT traversal). Necesario para que el navegador
+        # pueda conectarse aunque esté detrás de un firewall o NAT.
         RTC_CONFIG = RTCConfiguration({
             "iceServers": [
                 {"urls": ["stun:stun.l.google.com:19302"]},
@@ -621,11 +767,13 @@ with tab_cam:
             ]
         })
 
+        # Inicia el streamer WebRTC con el procesador definido arriba.
+        # async_processing=True permite que el procesamiento no bloquee el hilo de la UI.
         ctx = webrtc_streamer(
             key="mara-detector",
             video_processor_factory=MaraVideoProcessor,
             rtc_configuration=RTC_CONFIG,
-            media_stream_constraints={"video": True, "audio": False},
+            media_stream_constraints={"video": True, "audio": False},  # Solo video, sin audio
             async_processing=True,
         )
 
@@ -700,6 +848,10 @@ with tab_cam:
 
 # ════════════════════════════════════════
 #  TAB 4 — ESTADÍSTICAS
+# Muestra un dashboard de todas las detecciones guardadas en PostgreSQL:
+#   - Estado de conexión a la BD.
+#   - Gráfico de barras con totales acumulados por clase.
+#   - Tabla paginada del historial de detecciones con paginación manual.
 # ════════════════════════════════════════
 with tab_stats:
     import pandas as pd
@@ -791,8 +943,9 @@ with tab_stats:
         # ── Tabla paginada de últimos resultados ───────────────────────────
         st.markdown("##### Historial de detecciones")
 
-        PAGE_SIZE = 10
+        PAGE_SIZE = 10  # Número de registros por página en la tabla de historial
 
+        # Inicializa el número de página actual en session_state si no existe
         if "stats_page" not in st.session_state:
             st.session_state["stats_page"] = 0
 
