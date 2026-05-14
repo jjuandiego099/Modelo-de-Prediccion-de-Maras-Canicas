@@ -20,8 +20,7 @@ Usuario (navegador)
 │   └── SSL via Let's Encrypt             │
 │         │                               │
 │         ├──► Docker: Streamlit :8501    │
-│         ├──► Docker: API FastAPI :8000  │
-│         ├──► Docker: n8n :5678          │
+│         ├──► Docker: API FastAPI :8000  │     
 │         └──► Docker: PostgreSQL :5432   │
 │                                         │
 │   Todos los puertos internos en         │
@@ -68,21 +67,41 @@ sudo systemctl start docker
 ### `docker-compose.yml`
 
 ```yaml
-version: "3.9"
-
 services:
 
-  # API de inferencia YOLOv8s
+  postgres:
+    image: postgres:15
+    container_name: maras-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: canicas123
+      POSTGRES_DB: detecciones
+    ports:
+      # Restringido a localhost igual que los demás servicios
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    # Healthcheck para saber cuándo Postgres está realmente listo para aceptar conexiones
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d detecciones"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
     container_name: maras-api
-    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
     ports:
-      - "127.0.0.1:8000:8000"   # solo accesible internamente
+      - "127.0.0.1:8000:8000"
     volumes:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy   # Espera a que Postgres esté listo
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -90,59 +109,30 @@ services:
       timeout: 10s
       retries: 3
 
-  # Frontend Streamlit
   streamlit:
     build: .
     container_name: maras-app
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     ports:
-      - "127.0.0.1:8501:8501"   # solo accesible internamente
+      - "127.0.0.1:8501:8501"
     volumes:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
-      - DB_HOST=postgres
+      # Variables de BD que app.py lee con os.getenv()
       - DB_PORT=5432
       - DB_NAME=detecciones
       - DB_USER=admin
       - DB_PASS=canicas123
     depends_on:
-      - api
-      - postgres
-    restart: unless-stopped
-
-  # Base de datos PostgreSQL
-  postgres:
-    image: postgres:15
-    container_name: maras-db
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: canicas123
-      POSTGRES_DB: detecciones
-    ports:
-      - "127.0.0.1:5432:5432"   # solo accesible internamente
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  # Automatización de flujos n8n
-  n8n:
-    image: n8nio/n8n
-    container_name: maras-n8n
-    ports:
-      - "127.0.0.1:5678:5678"   # solo accesible internamente
-    environment:
-      - WEBHOOK_URL=https://deteccion-maras-canicas.duckdns.org/n8n/
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      - postgres
+      api:
+        condition: service_healthy   # Espera a que la API haya cargado el modelo
+      postgres:
+        condition: service_healthy   # Espera a que Postgres esté listo
     restart: unless-stopped
 
 volumes:
-  postgres_data:   # datos de PostgreSQL persistentes
-  n8n_data:        # configuración de n8n persistente
-```
+  postgres_data:
 
 ### Levantar todos los servicios
 
