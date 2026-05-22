@@ -284,6 +284,7 @@ def get_db_connection():
             dbname=_os.getenv("DB_NAME", "detecciones"),
             user=_os.getenv("DB_USER", "admin"),
             password=_os.getenv("DB_PASS", "canicas123"),
+            options="-c timezone=America/Bogota",
             connect_timeout=5,                        # No bloquear la UI más de 5 segundos
         )
         return conn
