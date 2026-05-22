@@ -28,7 +28,7 @@ Modelo-de-Prediccion-de-Maras-Canicas/
 ├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
 ├── docker-compose.yml      # Orquestación de todos los servicios
 ├── dockerignore            # Archivos ignorados por docker 
-├── Deployment.md           # Instrucciones de despliiegue
+├── Deployment.md           # Instrucciones de despliegue
 └── README.md               # Este archivo
 
 ```
