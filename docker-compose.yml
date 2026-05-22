@@ -7,6 +7,7 @@ services:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: canicas123
       POSTGRES_DB: detecciones
+      PGTZ: America/Bogota
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -33,6 +34,7 @@ services:
       - DB_NAME=detecciones
       - DB_USER=admin
       - DB_PASS=canicas123
+      - TZ=America/Bogota
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +60,7 @@ services:
       - DB_NAME=detecciones
       - DB_USER=admin
       - DB_PASS=canicas123
+      - TZ=America/Bogota
     depends_on:
       api:
         condition: service_healthy
