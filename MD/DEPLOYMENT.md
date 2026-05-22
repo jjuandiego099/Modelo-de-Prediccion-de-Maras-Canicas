@@ -74,37 +74,55 @@ sudo systemctl start docker
 ### `docker-compose.yml`
 
 ```yaml
-version: "3.9"
-
 services:
 
-  # API de inferencia YOLOv8s
+  postgres:
+    image: postgres:15
+    container_name: maras-postgres
+
+    # Variables de entorno de PostgreSQL
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: canicas123
+      POSTGRES_DB: detecciones
+      PGTZ: America/Bogota
+
+    # Solo expone PostgreSQL localmente en la EC2
+    # No es accesible desde internet
+    ports:
+      - "127.0.0.1:5432:5432"
+
+    # Persistencia de datos de la base de datos
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    # Reinicia automáticamente si falla
+    restart: unless-stopped
+
+    # Red interna Docker
+    networks:
+      - interna
+
+    # Verifica que PostgreSQL esté listo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d detecciones"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
   api:
     build: .
     container_name: maras-api
-    command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - "127.0.0.1:8000:8000"   # solo accesible internamente por Nginx
-    volumes:
-      - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
-  # Frontend Streamlit
-  streamlit:
-    build: .
-    container_name: maras-app
-    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
-    ports:
-      - "127.0.0.1:8501:8501"   # solo accesible internamente por Nginx
+    # Ejecuta FastAPI con Uvicorn
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+
+    # Sincroniza archivos locales con el contenedor
     volumes:
       - .:/app
+
+    # Variables de entorno usadas por FastAPI
     environment:
       - PYTHONUNBUFFERED=1
       - DB_HOST=postgres
@@ -112,29 +130,97 @@ services:
       - DB_NAME=detecciones
       - DB_USER=admin
       - DB_PASS=canicas123
+      - TZ=America/Bogota
+
+    # Espera a que PostgreSQL esté listo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    # Red interna Docker
+    networks:
+      - interna
+
+    # Comprueba que FastAPI responda correctamente
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+  streamlit:
+    build: .
+    container_name: maras-app
+
+    # Ejecuta la interfaz Streamlit
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+
+    # Comparte archivos locales con el contenedor
+    volumes:
+      - .:/app
+
+    # Variables de entorno usadas por Streamlit
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=detecciones
+      - DB_USER=admin
+      - DB_PASS=canicas123
+      - TZ=America/Bogota
+
+    # Espera a que API y PostgreSQL estén listos
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+    # Red interna Docker
+    networks:
+      - interna
+
+
+  nginx:
+    image: nginx:alpine
+    container_name: maras-nginx
+
+    # Expone HTTP y HTTPS al exterior
+    ports:
+      - "80:80"
+      - "443:443"
+
+    # Configuración de Nginx y certificados SSL
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+
+    # Espera a que API y Streamlit estén listos
     depends_on:
       - api
-      - postgres
+      - streamlit
+
     restart: unless-stopped
 
-  # Base de datos PostgreSQL
-  postgres:
-    image: postgres:15
-    container_name: maras-db
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: canicas123
-      POSTGRES_DB: detecciones
-    ports:
-      - "127.0.0.1:5432:5432"   # solo accesible internamente
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
+    # Red interna Docker
+    networks:
+      - interna
 
-  
 
+# Red privada compartida entre contenedores
+networks:
+  interna:
+    driver: bridge
+
+
+# Volumen persistente para PostgreSQL
 volumes:
-  postgres_data:   # datos de PostgreSQL persistentes
+  postgres_data:
 ```
 
 ### Levantar todos los servicios
@@ -192,10 +278,8 @@ sudo nano /etc/nginx/sites-available/marbles
 
 ```nginx
 server {
-    listen 80;
     server_name deteccion-maras-canicas.duckdns.org;
 
-    # Streamlit — app principal (web)
     location / {
         proxy_pass http://localhost:8501;
         proxy_http_version 1.1;
@@ -205,15 +289,31 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # API FastAPI — consumida por Streamlit y Expo Go
     location /api/ {
         proxy_pass http://localhost:8000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        client_max_body_size 20M;    # necesario para enviar imágenes
-        proxy_read_timeout 60s;      # el modelo puede tardar en responder
     }
+
+    location /n8n/ {
+        proxy_pass http://localhost:5678/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+
+    listen 443 ssl; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
 }
+server {
+    if ($host = deteccion-maras-canicas.duckdns.org) {
+        return 301 https://$host$request_uri;
+    } # managed by Certbot
 ```
 
 ```bash
@@ -318,9 +418,10 @@ npx expo start --tunnel   # --tunnel permite usar datos móviles sin misma red W
 ```
 app/
 ├── (tabs)/
-│   ├── _layout.tsx   ← define las pestañas (Detector e Info)
-│   ├── index.tsx     ← pantalla principal: detector con cámara/galería
-│   └── info.tsx      ← información del proyecto y explicación de parámetros
+│   ├── _layout.tsx         ← define las pestañas (Detector, Estadisticas e Info)
+│   ├── index.tsx           ← pantalla principal: detector con cámara/galería
+│   ├── estadistcas.tsx     ← historial de las detecciones anteriores
+│   └── info.tsx            ← información del proyecto y explicación de parámetros
 ```
 
 ### URL de la API en la app
@@ -370,7 +471,7 @@ sudo docker compose up -d --build   # rebuild de los servicios modificados
 | API FastAPI | https://deteccion-maras-canicas.duckdns.org/api/ |
 | API Docs (Swagger) | https://deteccion-maras-canicas.duckdns.org/api/docs |
 | App móvil (Expo Go) | Escanear QR al correr `npx expo start --tunnel` |
-| App móvil (Repositorio) | [App Movl](URL) |
+| App móvil (Repositorio) | [App Movil](https://github.com/jjuandiego099/App-Movil-ExpoGo-Deteccion-de-Maras-o-Canicas) |
 
 
 ---

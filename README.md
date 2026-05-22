@@ -55,7 +55,7 @@ El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de
 | 2 | `green marble` | 🟢 Verde | 124 |
 | 3 | `white marble` | ⚪ Blanca | 144 |
 
-**Total: 531 imágenes etiquetadas**
+**Total: 855 imágenes etiquetadas**
 
 ---
 
@@ -67,10 +67,15 @@ Backend construido con **FastAPI** que expone el modelo YOLOv8s como servicio RE
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/health` | Estado de la API y clases del modelo |
+| `GET` | `/health` | Verifica el estado de la API, conexión y modelo YOLO cargado |
+| `GET` | `/stats/totales` | Retorna el total acumulado de canicas detectadas por clase |
+| `GET` | `/stats/historial` | Retorna historial paginado de detecciones registradas |
+| `GET` | `/classes` | Lista las clases detectables del modelo YOLO |
+| `GET` | `/metrics` | Retorna métricas generales de inferencia y rendimiento |
 | `POST` | `/predict` | Recibe imagen → retorna JSON con detecciones |
 | `POST` | `/predict/image` | Recibe imagen → retorna PNG anotado |
 | `POST` | `/predict/video` | Recibe video → retorna MP4 anotado |
+| `POST` | `/predict/camera` | Procesa captura de cámara → retorna detecciones |
 
 ### Ejemplo de respuesta `/predict`
 ```json
@@ -98,6 +103,10 @@ Backend construido con **FastAPI** que expone el modelo YOLOv8s como servicio RE
 ## 🖥️ Aplicación Web — `app.py`
 
 Frontend construido con **Streamlit** en modo desacoplado — consume la API REST en vez de cargar el modelo localmente.
+
+## 🖥️ Aplicación Movil — `ExpoGo`
+
+App movil construida con ExpoGo que accede a la API y a postgres [EXPOGO](https://github.com/jjuandiego099/App-Movil-ExpoGo-Deteccion-de-Maras-o-Canicas).
 
 ### Tabs disponibles
 
