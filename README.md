@@ -25,7 +25,7 @@ Modelo-de-Prediccion-de-Maras-Canicas/
 ├── best.pt                 # Pesos del modelo YOLOv8s entrenado
 ├── best.onnx               # Pesos del modelo YOLOv8s entrenado formato onnx
 ├── requirements.txt        # Dependencias Python
-├── Dockerfile              # Imagen Docker unificada (API + Streamlit)
+├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
 ├── docker-compose.yml      # Orquestación de todos los servicios
 ├── dockerignore            # Archivos ignorados por docker 
 ├── Deployment.md           # Instrucciones de despliiegue
