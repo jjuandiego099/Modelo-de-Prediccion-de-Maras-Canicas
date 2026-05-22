@@ -39,9 +39,9 @@ Modelo-de-Prediccion-de-Maras-Canicas/
 
 ---
 
-## 🧠 Modelo — `modelo_maras.ipynb`
 
-El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de detección:
+## 🧠 Modelo — `modelo_maras.ipynb`
+El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de detección
 
 ### Contenido del cuaderno
 - **Exploración del dataset** — análisis de las 4 clases, distribución de muestras y visualización de imágenes etiquetadas
@@ -49,6 +49,9 @@ El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de
 - **Entrenamiento con YOLOv8s** — configuración de hiperparámetros, número de épocas, batch size y optimizador
 - **Evaluación** — métricas mAP@0.5, precisión, recall y curvas F1 por clase
 - **Exportación** — guardado de los pesos `best.pt` para producción
+
+## 🧠 Dataset de Maras o Canicas 
+- Link [Dataset](https://app.roboflow.com/juan-jose-vargas-correa-s-workspace/deteccion-maras-yb0z3/4)
 
 ### Clases detectadas
 
