@@ -28,6 +28,11 @@ services:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=detecciones
+      - DB_USER=admin
+      - DB_PASS=canicas123
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,12 +47,13 @@ services:
 
   streamlit:
     build: .
-    container_name: maras-app
+    container_name: maras-streamlit
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     volumes:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=detecciones
       - DB_USER=admin
