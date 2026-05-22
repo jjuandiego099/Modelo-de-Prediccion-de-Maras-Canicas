@@ -28,6 +28,10 @@ Modelo-de-Prediccion-de-Maras-Canicas/
 ├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
 ├── docker-compose.yml      # Orquestación de todos los servicios
 ├── dockerignore            # Archivos ignorados por docker 
+├── MD                      # Carpeta relacionada con archivos .MD  
+  ├── API.MD                # Explicacion del API 
+  ├── DEPLOYMENT.MD         # Explicacion del deployment
+├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
 ├── Deployment.md           # Instrucciones de despliegue
 └── README.md               # Este archivo
 
@@ -50,12 +54,26 @@ El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de
 
 | ID | Clase | Color | Muestras |
 |----|-------|-------|----------|
-| 0 | `black marble` | ⚫ Negra | 116 |
-| 1 | `blue marble` | 🔵 Azul | 147 |
-| 2 | `green marble` | 🟢 Verde | 124 |
-| 3 | `white marble` | ⚪ Blanca | 144 |
+| 0 | `black marble` | ⚫ Negra | 492 |
+| 1 | `blue marble` | 🔵 Azul | 510 |
+| 2 | `green marble` | 🟢 Verde | 485 |
+| 3 | `white marble` | ⚪ Blanca | 518 |
 
 **Total: 855 imágenes etiquetadas**
+
+### Metricas del modelo
+- mAP50-95: 0.95
+- mAP50:    0.99
+- Precisión: 0.97
+- Recall:    0.98
+
+- Precisión (Precision): Mide qué porcentaje de las detecciones realizadas por el modelo fueron correctas. Una alta precisión indica pocas falsas alarmas.
+
+- Recall: Mide la capacidad del modelo para detectar todos los objetos reales presentes en las imágenes. Un alto recall indica pocas omisiones.
+
+- mAP50: Evalúa la precisión promedio del modelo utilizando un umbral de IoU de 0.50. Indica qué tan bien detecta los objetos.
+
+- mAP50-95: Evalúa el rendimiento del modelo utilizando múltiples niveles de IoU entre 0.50 y 0.95. Es una métrica más estricta y refleja la precisión general del detector.
 
 ---
 
