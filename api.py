@@ -19,6 +19,7 @@ from typing import Optional
 from pydantic import BaseModel
 from collections import Counter
 
+
 # ── PostgreSQL ─────────────────────────────────────────────────────────────
 import psycopg2
 
@@ -440,3 +441,73 @@ async def predict_video(
         except Exception: pass
         try: os.unlink(out_tmp.name)
         except Exception: pass
+def get_db():
+    return psycopg2.connect(
+        host=os.getenv("DB_HOST", "postgres"),
+        port=os.getenv("DB_PORT", "5432"),
+        dbname=os.getenv("DB_NAME", "detecciones"),
+        user=os.getenv("DB_USER", "admin"),
+        password=os.getenv("DB_PASS", "canicas123"),
+        options="-c timezone=America/Bogota"
+    )
+
+@app.get("/stats/totales", tags=["Stats"])
+async def stats_totales():
+    if model is None:
+        raise HTTPException(status_code=503, detail="Modelo no disponible")
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                COALESCE(SUM(verde),  0),
+                COALESCE(SUM(azul),   0),
+                COALESCE(SUM(blanca), 0),
+                COALESCE(SUM(negra),  0)
+            FROM detecciones
+        """)
+        row = cur.fetchone()
+        return {
+            "verde":  int(row[0]),
+            "azul":   int(row[1]),
+            "blanca": int(row[2]),
+            "negra":  int(row[3]),
+        }
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.get("/stats/historial", tags=["Stats"])
+async def stats_historial(limit: int = 10, offset: int = 0):
+    conn = get_db()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM detecciones")
+        total = cur.fetchone()[0]
+        cur.execute("""
+            SELECT id, fecha, fuente, verde, azul, blanca, negra, total
+            FROM detecciones
+            ORDER BY fecha DESC
+            LIMIT %s OFFSET %s
+        """, (limit, offset))
+        rows = cur.fetchall()
+        return {
+            "total": total,
+            "rows": [
+                {
+                    "id":     r[0],
+                    "fecha":  r[1].strftime("%m/%d %H:%M"),
+                    "fuente": r[2],
+                    "verde":  r[3],
+                    "azul":   r[4],
+                    "blanca": r[5],
+                    "negra":  r[6],
+                    "total":  r[7],
+                }
+                for r in rows
+            ],
+        }
+    finally:
+        cur.close()
+        conn.close()
