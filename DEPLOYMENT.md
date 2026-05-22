@@ -1,6 +1,6 @@
 # 🚀 Despliegue en AWS EC2 — Guía completa
 
-> Documentación del proceso completo de despliegue del sistema de Detección de Maras en AWS EC2 con Docker, SSL/HTTPS mediante DuckDNS + Let's Encrypt, y todos los servicios dockerizados (API, Streamlit, PostgreSQL, n8n).
+> Documentación del proceso completo de despliegue del sistema de Detección de Maras en AWS EC2 con Docker, SSL/HTTPS mediante DuckDNS + Let's Encrypt, todos los servicios dockerizados (API, Streamlit, PostgreSQL) y la app móvil con Expo Go.
 
 **URL de producción:** [https://deteccion-maras-canicas.duckdns.org](https://deteccion-maras-canicas.duckdns.org)
 
@@ -9,24 +9,30 @@
 ## 🏗️ Arquitectura general
 
 ```
-Usuario (navegador)
-        │
-        │ HTTPS :443
-        ▼
-┌─────────────────────────────────────────┐
-│              AWS EC2 (Ubuntu 24)        │
-│                                         │
-│   Nginx (fuera de Docker)               │
-│   └── SSL via Let's Encrypt             │
-│         │                               │
-│         ├──► Docker: Streamlit :8501    │
-│         ├──► Docker: API FastAPI :8000  │
-│         ├──► Docker: n8n :5678          │
-│         └──► Docker: PostgreSQL :5432   │
-│                                         │
-│   Todos los puertos internos en         │
-│   127.0.0.1 — no expuestos al exterior  │
-└─────────────────────────────────────────┘
+📱 Expo Go (celular)          🌐 Navegador (PC)
+        │                             │
+        │ HTTPS :443                  │ HTTPS :443
+        └──────────────┬──────────────┘
+                       ▼
+        ┌─────────────────────────────────────────┐
+        │              AWS EC2 (Ubuntu 24)        │
+        │                                         │
+        │   Nginx (fuera de Docker)               │
+        │   └── SSL via Let's Encrypt             │
+        │         │                               │
+        │         ├──► /        → Streamlit :8501 │
+        │         ├──► /api/    → FastAPI  :8000  │
+        │                                         │
+        │                                         │
+        │   Docker (red interna)                  │
+        │   ├── maras-api      (FastAPI + YOLO)   │
+        │   ├── maras-app      (Streamlit)        │
+        │   ├── maras-db       (PostgreSQL)       │
+        │                                         │
+        │                                         │
+        │   Todos los puertos en 127.0.0.1        │
+        │   — no expuestos al exterior            │
+        └─────────────────────────────────────────┘
 ```
 
 ---
@@ -37,9 +43,9 @@ Usuario (navegador)
 - **AMI:** Ubuntu Server 24.04 LTS
 - **Tipo:** t2.large (o superior según carga)
 - **Almacenamiento:** 50 GB SSD
-- **IP pública:** `3.212.170.240`
+- **IP pública:** `3.212.170.240` (IP elástica)
 
-> Se recomienda activar una **IP elastica** para la configuracion de EC2.
+> Se recomienda activar una **IP elástica** para que la IP no cambie al reiniciar la instancia.
 
 ### Security Group — puertos abiertos
 | Puerto | Protocolo | Descripción |
@@ -54,7 +60,7 @@ Usuario (navegador)
 
 ## 🐳 2. Docker y Docker Compose
 
-Todos los servicios corren como contenedores Docker orquestados con Docker Compose.
+Todos los servicios corren como contenedores Docker orquestados con Docker Compose. Los puertos están vinculados a `127.0.0.1` para que solo Nginx (instalado en el sistema) pueda acceder a ellos.
 
 ### Instalación de Docker en EC2
 
@@ -78,7 +84,7 @@ services:
     container_name: maras-api
     command: uvicorn api:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "127.0.0.1:8000:8000"   # solo accesible internamente
+      - "127.0.0.1:8000:8000"   # solo accesible internamente por Nginx
     volumes:
       - .:/app
     environment:
@@ -96,7 +102,7 @@ services:
     container_name: maras-app
     command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
     ports:
-      - "127.0.0.1:8501:8501"   # solo accesible internamente
+      - "127.0.0.1:8501:8501"   # solo accesible internamente por Nginx
     volumes:
       - .:/app
     environment:
@@ -125,23 +131,10 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
-  # Automatización de flujos n8n
-  n8n:
-    image: n8nio/n8n
-    container_name: maras-n8n
-    ports:
-      - "127.0.0.1:5678:5678"   # solo accesible internamente
-    environment:
-      - WEBHOOK_URL=https://deteccion-maras-canicas.duckdns.org/n8n/
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      - postgres
-    restart: unless-stopped
+  
 
 volumes:
   postgres_data:   # datos de PostgreSQL persistentes
-  n8n_data:        # configuración de n8n persistente
 ```
 
 ### Levantar todos los servicios
@@ -154,10 +147,10 @@ sudo docker compose up -d --build
 ### Comandos útiles
 
 ```bash
-sudo docker compose ps          # ver estado de todos los contenedores
-sudo docker compose logs -f     # ver logs en tiempo real
-sudo docker compose restart streamlit   # reiniciar solo Streamlit
-sudo docker compose down        # detener todo
+sudo docker compose ps                        # ver estado de todos los contenedores
+sudo docker compose logs -f                   # ver logs en tiempo real
+sudo docker compose restart streamlit         # reiniciar solo Streamlit
+sudo docker compose down                      # detener todo
 ```
 
 ---
@@ -178,10 +171,11 @@ Como no se contaba con un dominio propio, se usó **DuckDNS** — un servicio gr
 
 ## 🔒 4. HTTPS con Nginx + Let's Encrypt (Certbot)
 
-Para habilitar HTTPS (requerido por Chrome para acceder a cámara y micrófono), se instaló **Nginx** fuera de Docker como proxy inverso, y **Certbot** para gestionar el certificado SSL gratuito de Let's Encrypt.
+Nginx se instaló **directamente en el sistema EC2** (fuera de Docker) como proxy inverso único. Certbot gestiona el certificado SSL gratuito de Let's Encrypt.
 
 ### ¿Por qué HTTPS es obligatorio?
-Los navegadores modernos (Chrome, Firefox, Safari) bloquean el acceso a cámara y micrófono en sitios HTTP. Solo permiten estos permisos en sitios con HTTPS o en `localhost`.
+- Los navegadores modernos bloquean acceso a cámara y micrófono en sitios HTTP.
+- **Expo Go** en iOS y Android bloquea requests HTTP por defecto — solo acepta HTTPS.
 
 ### Instalación de Nginx y Certbot
 
@@ -201,7 +195,7 @@ server {
     listen 80;
     server_name deteccion-maras-canicas.duckdns.org;
 
-    # Streamlit — app principal
+    # Streamlit — app principal (web)
     location / {
         proxy_pass http://localhost:8501;
         proxy_http_version 1.1;
@@ -211,20 +205,13 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # API FastAPI
+    # API FastAPI — consumida por Streamlit y Expo Go
     location /api/ {
         proxy_pass http://localhost:8000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    # n8n — automatización
-    location /n8n/ {
-        proxy_pass http://localhost:5678/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        client_max_body_size 20M;    # necesario para enviar imágenes
+        proxy_read_timeout 60s;      # el modelo puede tardar en responder
     }
 }
 ```
@@ -265,8 +252,7 @@ La base de datos corre como contenedor Docker con volumen persistente, lo que si
 ### Crear la tabla de detecciones
 
 ```bash
-sudo docker exec -it modelo-de-prediccion-de-maras-canicas-postgres-1 \
-  psql -U admin -d detecciones
+sudo docker exec -it maras-db psql -U admin -d detecciones
 ```
 
 ```sql
@@ -285,7 +271,8 @@ CREATE TABLE IF NOT EXISTS detecciones (
 ```
 
 ### Conexión desde Streamlit
-Streamlit se conecta a PostgreSQL usando el **nombre del servicio** `postgres` como host — esto funciona gracias a la red interna de Docker Compose donde los contenedores se resuelven por nombre:
+
+Streamlit se conecta a PostgreSQL usando el **nombre del servicio** `postgres` como host — esto funciona gracias a la red interna de Docker Compose:
 
 ```python
 psycopg2.connect(
@@ -299,8 +286,65 @@ psycopg2.connect(
 
 ---
 
+## 📱 6. App móvil con Expo Go
 
-## 🔁 6. Flujo de actualización (CI/CD manual)
+La app móvil se desarrolló con **React Native + Expo** y consume la misma API FastAPI a través de HTTPS.
+
+### Requisitos
+- Node.js instalado en la PC de desarrollo
+- App **Expo Go** instalada en el celular (iOS o Android)
+- PC y celular en la misma red, o usar túnel de Expo
+
+### Instalación y arranque
+
+```bash
+# Crear proyecto (solo la primera vez)
+npx create-expo-app App-Movil-Deteccon-Maras-ExpoGo --template (SDK 54)
+cd App-Movil-Deteccon-Maras-ExpoGo
+
+# Instalar dependencias
+npx expo install expo-image-picker @react-native-community/slider
+
+# Arrancar servidor de desarrollo
+npx expo start --tunnel   # --tunnel permite usar datos móviles sin misma red WiFi
+```
+
+### Escanear QR
+- **Android:** Abrir Expo Go → "Scan QR code"
+- **iOS:** Abrir la cámara normal → apuntar al QR
+
+### Estructura de la app
+
+```
+app/
+├── (tabs)/
+│   ├── _layout.tsx   ← define las pestañas (Detector e Info)
+│   ├── index.tsx     ← pantalla principal: detector con cámara/galería
+│   └── info.tsx      ← información del proyecto y explicación de parámetros
+```
+
+### URL de la API en la app
+
+```typescript
+// app/(tabs)/index.tsx
+const API_URL = "https://deteccion-maras-canicas.duckdns.org/api";
+```
+
+La app funciona porque:
+1. Expo Go hace requests HTTPS a `deteccion-maras-canicas.duckdns.org`
+2. Nginx recibe el request en el puerto 443
+3. Lo redirige internamente a `localhost:8000` (FastAPI en Docker)
+4. FastAPI corre el modelo YOLOv8s y responde con las detecciones
+
+### Parámetros configurables en la app
+| Parámetro | Descripción | Valor recomendado |
+|-----------|-------------|-------------------|
+| Confianza | Certeza mínima para reportar una detección | 0.50 – 0.65 |
+| IoU (NMS) | Umbral para eliminar cajas duplicadas | 0.40 – 0.50 |
+
+---
+
+## 🔁 7. Flujo de actualización (CI/CD manual)
 
 Para actualizar la aplicación en producción:
 
@@ -313,7 +357,7 @@ git push origin main
 # 2. En EC2 — pull y rebuild
 cd Modelo-de-Prediccion-de-Maras-Canicas
 git pull origin main
-sudo docker compose up -d --build streamlit   # rebuild solo del servicio modificado
+sudo docker compose up -d --build   # rebuild de los servicios modificados
 ```
 
 ---
@@ -323,7 +367,11 @@ sudo docker compose up -d --build streamlit   # rebuild solo del servicio modifi
 | Servicio | URL |
 |----------|-----|
 | App Streamlit | https://deteccion-maras-canicas.duckdns.org |
-| API docs | http://localhost:8000/docs (solo desde EC2) |
+| API FastAPI | https://deteccion-maras-canicas.duckdns.org/api/ |
+| API Docs (Swagger) | https://deteccion-maras-canicas.duckdns.org/api/docs |
+| App móvil (Expo Go) | Escanear QR al correr `npx expo start --tunnel` |
+| App móvil (Repositorio) | [App Movl](URL) |
+
 
 ---
 
@@ -333,3 +381,4 @@ sudo docker compose up -d --build streamlit   # rebuild solo del servicio modifi
 - Un único punto de entrada público: Nginx en puerto 443 con HTTPS
 - Certificado SSL gratuito con renovación automática cada 90 días
 - Security Group de EC2 con solo puertos 22, 80 y 443 abiertos
+- Expo Go usa HTTPS obligatoriamente — no hay tráfico HTTP expuesto

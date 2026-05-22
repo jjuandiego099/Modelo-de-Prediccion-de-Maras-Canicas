@@ -260,76 +260,28 @@ def detections_summary(detections):
     return " ".join(parts)
 
 
-# ── Helpers de Base de Datos ───────────────────────────────────────────────
+# ── Helpers de Base de Datos (solo lectura) ────────────────────────────────
+# El guardado lo hace la API directamente — app.py solo lee para mostrar estadísticas.
 
 def get_db_connection():
     """
-    Crea y retorna una conexión a la base de datos PostgreSQL.
-    Los parámetros de conexión se leen de variables de entorno para mayor seguridad,
-    con valores por defecto para el entorno de desarrollo local.
-    El host 'postgres' corresponde al nombre del servicio en docker-compose.
-
-    Returns:
-        Objeto de conexión psycopg2 si tiene éxito, o None si falla la conexión.
-        Retornar None (en lugar de lanzar excepción) permite que la app siga
-        funcionando aunque la base de datos no esté disponible.
+    Abre una conexión de solo lectura a PostgreSQL para consultar estadísticas.
+    El guardado de detecciones lo realiza la API (api.py), no este frontend.
+    Retorna None si la BD no está disponible — la app sigue funcionando sin ella.
     """
     try:
         import psycopg2
         conn = psycopg2.connect(
-            host="postgres",                          # Nombre del servicio en docker-compose
-            port=_os.getenv("DB_PORT", "5432"),       # Puerto PostgreSQL (5432 por defecto)
+            host="postgres",
+            port=_os.getenv("DB_PORT", "5432"),
             dbname=_os.getenv("DB_NAME", "detecciones"),
             user=_os.getenv("DB_USER", "admin"),
             password=_os.getenv("DB_PASS", "canicas123"),
-            connect_timeout=5,                        # No bloquear la UI más de 5 segundos
+            connect_timeout=5,
         )
         return conn
     except Exception:
-        return None  # La app continúa sin persistencia si la BD no está disponible
-
-
-def guardar_deteccion(fuente: str, detections: list, inference_ms: float):
-    """
-    Persiste el resultado de una inferencia en la tabla 'detecciones' de PostgreSQL.
-    Cuenta cuántos objetos de cada clase (Verde, Azul, Blanca, Negra) se detectaron,
-    calcula la confianza promedio y guarda el registro con la fuente de entrada.
-
-    Args:
-        fuente: Origen de la imagen ("imagen", "video" o "camara").
-        detections: Lista de detecciones retornada por la API.
-        inference_ms: Tiempo de inferencia en milisegundos reportado por la API.
-
-    Returns:
-        True si el registro se guardó correctamente, False si hubo algún error.
-    """
-    from collections import Counter
-    # Cuenta las detecciones por nombre de clase (en minúsculas para consistencia)
-    counts = Counter(d["class_name"].lower() for d in detections)
-    verde  = counts.get("green marble", 0)
-    azul   = counts.get("blue marble", 0)
-    blanca = counts.get("white marble", 0)
-    negra  = counts.get("black marble", 0)
-    total  = len(detections)
-    # Confianza promedio de todas las detecciones (0 si no hay ninguna)
-    conf_avg = round(float(np.mean([d["confidence"] for d in detections])), 4) if detections else 0.0
-
-    conn = get_db_connection()
-    if not conn:
-        return False  # Sin conexión, no se puede guardar
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO detecciones (fuente, verde, azul, blanca, negra, total, confianza_avg, inferencia_ms)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (fuente, verde, azul, blanca, negra, total, conf_avg, inference_ms))
-        conn.commit()
-        cur.close()
-        conn.close()
-        return True
-    except Exception:
-        conn.close()
-        return False
+        return None
 
 
 def obtener_detecciones(limit: int = 10, offset: int = 0):
@@ -558,9 +510,6 @@ with tab_img:
                 st.markdown('<div class="results-box"><h3>Detecciones</h3>', unsafe_allow_html=True)
                 st.image(annotated_rgb, use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
-
-            # Persiste el resultado en PostgreSQL para las estadísticas del tab 4
-            guardar_deteccion("imagen", detections, result["inference_ms"])
 
             st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
             m1, m2, m3, m4 = st.columns(4)
@@ -804,9 +753,6 @@ with tab_cam:
         if snap_result:
             snap_dets      = snap_result["detections"]
             snap_annotated = draw_detections_local(snap_bgr, snap_dets)
-
-            # Guardar en BD
-            guardar_deteccion("camara", snap_dets, snap_result["inference_ms"])
 
             col_sn1, col_sn2 = st.columns(2)
             with col_sn1:
