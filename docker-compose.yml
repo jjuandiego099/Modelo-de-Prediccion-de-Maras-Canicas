@@ -61,6 +61,7 @@ services:
       - DB_USER=admin
       - DB_PASS=canicas123
       - TZ=America/Bogota
+      - STREAMLIT_SERVER_MAX_UPLOAD_SIZE=500
     depends_on:
       api:
         condition: service_healthy
