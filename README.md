@@ -52,7 +52,7 @@ El cuaderno de Jupyter documenta todo el pipeline de entrenamiento del modelo de
 - **Exportación** — guardado de los pesos `best.pt` para producción
 
 ### 🧠 Dataset de Maras o Canicas 
-[Dataset](https://app.roboflow.com/juan-jose-vargas-correa-s-workspace/deteccion-maras-yb0z3/4)
+-Dataset de Maras o Canicas [Dataset Roboflow](https://app.roboflow.com/juan-jose-vargas-correa-s-workspace/deteccion-maras-yb0z3/4)
 
 ### Clases detectadas
 
