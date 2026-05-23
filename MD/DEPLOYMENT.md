@@ -457,7 +457,6 @@ sudo docker compose up -d --build   # rebuild de los servicios modificados
 |----------|-----|
 | App Streamlit | https://deteccion-maras-canicas.duckdns.org |
 | API FastAPI | https://deteccion-maras-canicas.duckdns.org/api/ |
-| API Docs (Swagger) | https://deteccion-maras-canicas.duckdns.org/api/docs |
 | App móvil (Expo Go) | Escanear QR al correr `npx expo start --tunnel` |
 | App móvil (Repositorio) | [App Movil](https://github.com/jjuandiego099/App-Movil-ExpoGo-Deteccion-de-Maras-o-Canicas) |
 
