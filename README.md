@@ -140,18 +140,20 @@ Panel de resultados históricos conectado a PostgreSQL:
 - Gráfico de barras comparativo entre las 4 clases con Plotly
 - Resumen de totales y porcentajes por clase
 - Tabla paginada (10 en 10) con historial completo de detecciones incluyendo fecha, fuente, conteo por clase, confianza promedio y tiempo de inferencia
-
-### Configuración (sidebar)
-- **Umbral de confianza** — slider 0.1 a 1.0 (recomendado 0.50–0.65)
-- **Umbral IoU (NMS)** — slider 0.1 a 1.0 (recomendado 0.40–0.50)
-- **Indicador de estado** de la API en tiempo real
-
-### ℹ️ Info
+  
+  
+#### ℹ️ Info
 Describe brevemente el proyecto, las categorias de canicas a detectar y una breve explcacion de las variables de configuración 
 - Descripción del proyecto
 - Tecnologias utilizadas
 - Categorias de maras o canicas
 - Explicación de las varables de configuración(Umbral de confianz y Umbral de IoU)
+
+  
+### Configuración (sidebar)
+- **Umbral de confianza** — slider 0.1 a 1.0 (recomendado 0.50–0.65)
+- **Umbral IoU (NMS)** — slider 0.1 a 1.0 (recomendado 0.40–0.50)
+- **Indicador de estado** de la API en tiempo real
 
 ---
 
