@@ -17,21 +17,19 @@
         ┌─────────────────────────────────────────┐
         │              AWS EC2 (Ubuntu 24)        │
         │                                         │
-        │   Nginx (fuera de Docker)               │
-        │   └── SSL via Let's Encrypt             │
-        │         │                               │
-        │         ├──► /        → Streamlit :8501 │
-        │         ├──► /api/    → FastAPI  :8000  │
-        │                                         │
-        │                                         │
-        │   Docker (red interna)                  │
+        │   Docker (red interna "interna")        │
+        │   ├── maras-nginx    (Nginx + SSL)      │
+        │   │   └── SSL via Let's Encrypt         │
+        │   │         │                           │
+        │   │         ├──► /      → maras-app     │
+        │   │         ├──► /api/  → maras-api     │
+        │   │                                     │
         │   ├── maras-api      (FastAPI + YOLO)   │
         │   ├── maras-app      (Streamlit)        │
-        │   ├── maras-db       (PostgreSQL)       │
+        │   └── maras-postgres (PostgreSQL)       │
         │                                         │
-        │                                         │
-        │   Todos los puertos en 127.0.0.1        │
-        │   — no expuestos al exterior            │
+        │   Puertos 80 y 443 expuestos al exterior│
+        │   El resto solo en red interna Docker   │
         └─────────────────────────────────────────┘
 ```
 
@@ -60,7 +58,7 @@
 
 ## 🐳 2. Docker y Docker Compose
 
-Todos los servicios corren como contenedores Docker orquestados con Docker Compose. Los puertos están vinculados a `127.0.0.1` para que solo Nginx (instalado en el sistema) pueda acceder a ellos.
+Todos los servicios corren como contenedores Docker orquestados con Docker Compose, incluyendo Nginx. La red interna de Docker (`interna`) comunica los contenedores entre sí sin exponer puertos al exterior, excepto el 80 y 443 de Nginx.
 
 ### Instalación de Docker en EC2
 
@@ -92,9 +90,10 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
 
-    # Persistencia de datos de la base de datos
+    # Persistencia de datos y script de inicialización automática
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
 
     # Reinicia automáticamente si falla
     restart: unless-stopped
@@ -171,6 +170,7 @@ services:
       - DB_USER=admin
       - DB_PASS=canicas123
       - TZ=America/Bogota
+      - STREAMLIT_SERVER_MAX_UPLOAD_SIZE=500
 
     # Espera a que API y PostgreSQL estén listos
     depends_on:
@@ -255,92 +255,79 @@ Como no se contaba con un dominio propio, se usó **DuckDNS** — un servicio gr
 
 ---
 
-## 🔒 4. HTTPS con Nginx + Let's Encrypt (Certbot)
+## 🔒 4. HTTPS con Nginx dockerizado + Let's Encrypt (Certbot)
 
-Nginx se instaló **directamente en el sistema EC2** (fuera de Docker) como proxy inverso único. Certbot gestiona el certificado SSL gratuito de Let's Encrypt.
+Nginx corre como **contenedor Docker** (`maras-nginx`) dentro de la misma red interna. Certbot se instala en el sistema EC2 solo para generar y renovar los certificados SSL, que luego se montan como volumen de solo lectura en el contenedor.
 
 ### ¿Por qué HTTPS es obligatorio?
 - Los navegadores modernos bloquean acceso a cámara y micrófono en sitios HTTP.
 - **Expo Go** en iOS y Android bloquea requests HTTP por defecto — solo acepta HTTPS.
 
-### Instalación de Nginx y Certbot
+### Obtener certificado SSL (solo la primera vez)
 
 ```bash
 sudo apt update
-sudo apt install nginx certbot python3-certbot-nginx -y
+sudo apt install certbot -y
+# Detener cualquier proceso en el puerto 80 antes de correr certbot
+sudo certbot certonly --standalone -d deteccion-maras-canicas.duckdns.org
 ```
 
-### Configuración de Nginx
+Los certificados quedan en `/etc/letsencrypt/` y se montan en el contenedor Nginx como volumen de solo lectura (ver `docker-compose.yml`).
 
-```bash
-sudo nano /etc/nginx/sites-available/marbles
-```
+### Configuración de Nginx — `nginx/nginx.conf`
 
 ```nginx
-server {
-    server_name deteccion-maras-canicas.duckdns.org;
-
-    location / {
-        proxy_pass http://localhost:8501;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    location /api/ {
-        proxy_pass http://localhost:8000/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    location /n8n/ {
-        proxy_pass http://localhost:5678/;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-
-    listen 443 ssl; # managed by Certbot
-    ssl_certificate /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/fullchain.pem; # managed by Certbot
-    ssl_certificate_key /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/privkey.pem; # managed by Certbot
-    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
-
+events {
+    worker_connections 1024;
 }
-server {
-    if ($host = deteccion-maras-canicas.duckdns.org) {
+http {
+    client_max_body_size 500M;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
+
+    server {
+        listen 80;
+        server_name deteccion-maras-canicas.duckdns.org;
         return 301 https://$host$request_uri;
-    } # managed by Certbot
+    }
+
+    server {
+        listen 443 ssl;
+        server_name deteccion-maras-canicas.duckdns.org;
+        ssl_certificate     /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/deteccion-maras-canicas.duckdns.org/privkey.pem;
+
+        location / {
+            proxy_pass http://maras-app:8501;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+        }
+
+        location /api/ {
+            proxy_pass http://maras-api:8000/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+    }
+}
 ```
 
+### Recargar Nginx sin bajar contenedores
+
 ```bash
-# Activar configuración
-sudo ln -s /etc/nginx/sites-available/marbles /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default   # desactivar página por defecto
-sudo nginx -t                              # verificar sintaxis
-sudo systemctl reload nginx
+docker compose exec nginx nginx -s reload
 ```
 
-### Obtener certificado SSL gratuito
+### Renovar certificado SSL
 
 ```bash
-sudo certbot --nginx -d deteccion-maras-canicas.duckdns.org
-```
-
-Certbot automáticamente:
-- Verifica que el dominio apunta a la EC2
-- Genera el certificado SSL de Let's Encrypt (gratuito, válido 90 días)
-- Modifica la config de Nginx para escuchar en el puerto 443
-- Configura redirección automática HTTP → HTTPS
-- Programa renovación automática del certificado
-
-### Verificar renovación automática
-
-```bash
-sudo certbot renew --dry-run
+# Detener nginx para liberar el puerto 80
+docker compose stop nginx
+sudo certbot renew
+docker compose start nginx
 ```
 
 ---
@@ -349,13 +336,12 @@ sudo certbot renew --dry-run
 
 La base de datos corre como contenedor Docker con volumen persistente, lo que significa que los datos sobreviven reinicios del contenedor.
 
-### Crear la tabla de detecciones
+### Inicialización automática de la tabla
 
-```bash
-sudo docker exec -it maras-db psql -U admin -d detecciones
-```
+La tabla `detecciones` se crea automáticamente la primera vez que arranca el contenedor. El archivo `init.sql` del repositorio se monta en `/docker-entrypoint-initdb.d/` — PostgreSQL ejecuta cualquier `.sql` en esa ruta al inicializarse por primera vez.
 
 ```sql
+-- init.sql (incluido en el repositorio)
 CREATE TABLE IF NOT EXISTS detecciones (
     id            SERIAL PRIMARY KEY,
     fecha         TIMESTAMP DEFAULT NOW(),
@@ -369,6 +355,8 @@ CREATE TABLE IF NOT EXISTS detecciones (
     inferencia_ms FLOAT DEFAULT 0
 );
 ```
+
+> ⚠️ El script solo se ejecuta si el volumen `postgres_data` está vacío (primera vez). Si el contenedor ya tiene datos, no lo vuelve a correr.
 
 ### Conexión desde Streamlit
 
@@ -434,7 +422,7 @@ const API_URL = "https://deteccion-maras-canicas.duckdns.org/api";
 La app funciona porque:
 1. Expo Go hace requests HTTPS a `deteccion-maras-canicas.duckdns.org`
 2. Nginx recibe el request en el puerto 443
-3. Lo redirige internamente a `localhost:8000` (FastAPI en Docker)
+3. Lo redirige internamente al contenedor `maras-api:8000` (FastAPI)
 4. FastAPI corre el modelo YOLOv8s y responde con las detecciones
 
 ### Parámetros configurables en la app
@@ -478,7 +466,7 @@ sudo docker compose up -d --build   # rebuild de los servicios modificados
 
 ## 🛡️ Seguridad implementada
 
-- Todos los puertos internos (8000, 8501, 5432, 5678) vinculados a `127.0.0.1` — inaccesibles desde internet
+- Todos los puertos internos (8000, 8501, 5432) accesibles solo dentro de la red interna Docker — no expuestos al exterior
 - Un único punto de entrada público: Nginx en puerto 443 con HTTPS
 - Certificado SSL gratuito con renovación automática cada 90 días
 - Security Group de EC2 con solo puertos 22, 80 y 443 abiertos

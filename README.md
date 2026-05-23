@@ -25,14 +25,15 @@ Modelo-de-Prediccion-de-Maras-Canicas/
 ├── best.pt                 # Pesos del modelo YOLOv8s entrenado
 ├── best.onnx               # Pesos del modelo YOLOv8s entrenado formato onnx
 ├── requirements.txt        # Dependencias Python
-├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
+├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Nginx)
 ├── docker-compose.yml      # Orquestación de todos los servicios
-├── dockerignore            # Archivos ignorados por docker 
-├── MD                      # Carpeta relacionada con archivos .MD  
-  ├── API.MD                # Explicacion del API 
-  ├── DEPLOYMENT.MD         # Explicacion del deployment
-├── Dockerfile              # Imagen Docker unificada (API + Streamlit + Postgres)
-├── Deployment.md           # Instrucciones de despliegue
+├── .dockerignore           # Archivos ignorados por Docker
+├── nginx/                  # Configuración de Nginx (incluida en el repo)
+│   └── nginx.conf          # Proxy inverso, SSL y límites de subida
+├── init.sql                # Script SQL — crea la tabla automáticamente al iniciar
+├── MD/                     # Documentación adicional
+│   ├── API.md              # Referencia completa de la API
+│   └── DEPLOYMENT.md       # Guía de despliegue en AWS EC2
 └── README.md               # Este archivo
 
 ```
@@ -88,15 +89,14 @@ Backend construido con **FastAPI** que expone el modelo YOLOv8s como servicio RE
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
-| `GET` | `/health` | Verifica el estado de la API, conexión y modelo YOLO cargado |
+| `GET` | `/` | Info general de la API y lista de endpoints |
+| `GET` | `/health` | Verifica el estado de la API y modelo YOLO cargado |
 | `GET` | `/stats/totales` | Retorna el total acumulado de canicas detectadas por clase |
 | `GET` | `/stats/historial` | Retorna historial paginado de detecciones registradas |
-| `GET` | `/classes` | Lista las clases detectables del modelo YOLO |
-| `GET` | `/metrics` | Retorna métricas generales de inferencia y rendimiento |
-| `POST` | `/predict` | Recibe imagen → retorna JSON con detecciones |
-| `POST` | `/predict/image` | Recibe imagen → retorna PNG anotado |
-| `POST` | `/predict/video` | Recibe video → retorna MP4 anotado |
-| `POST` | `/predict/camera` | Procesa captura de cámara → retorna detecciones |
+| `POST` | `/predict` | Recibe imagen → retorna JSON con detecciones (guarda en BD) |
+| `POST` | `/predict/image` | Recibe imagen → retorna PNG anotado (no guarda en BD) |
+| `POST` | `/predict/video` | Recibe video → retorna MP4 anotado (no guarda en BD) |
+| `POST` | `/save` | Guarda conteos enviados por la app móvil directamente en BD |
 
 ### Ejemplo de respuesta `/predict`
 ```json
@@ -135,7 +135,7 @@ App movil construida con ExpoGo que accede a la API y a postgres [EXPOGO](https:
 Sube una imagen en JPG, PNG, BMP o WEBP. La app muestra la imagen original lado a lado con la imagen anotada, métricas de detección (total, confianza media, tiempo de inferencia, resolución) y tabla detallada de cada detección con sus coordenadas.
 
 #### 🎬 Video
-Sube un video MP4, AVI, MOV o MKV. La API procesa frame a frame y retorna el video completo con las detecciones dibujadas. Incluye botón de descarga del video anotado.
+Sube un video MP4, AVI, MOV o MKV (hasta 500 MB). La API procesa frame a frame y retorna el video completo con las detecciones dibujadas. Las detecciones de video **no se guardan en la base de datos**. Incluye botón de descarga del video anotado.
 
 #### 📹 Cámara en vivo
 Dos modos:
@@ -157,7 +157,7 @@ Panel de resultados históricos conectado a PostgreSQL:
 
 ## 🗄️ Base de Datos — PostgreSQL
 
-Cada detección realizada desde cualquier tab (Imagen, Video, Cámara) se guarda automáticamente en PostgreSQL.
+Las detecciones de **Imagen** y **Cámara** se guardan automáticamente en PostgreSQL. Las detecciones de **Video** no se persisten en BD.
 
 ### Tabla `detecciones`
 
@@ -195,23 +195,9 @@ Accede a:
 - **API docs:** http://localhost:8000/docs
 
 
-### Crear la tabla en PostgreSQL
+### Tabla en PostgreSQL
 
-```bash
-docker exec -it <nombre-contenedor-postgres> psql -U admin -d detecciones -c "
-CREATE TABLE IF NOT EXISTS detecciones (
-    id SERIAL PRIMARY KEY,
-    fecha TIMESTAMP DEFAULT NOW(),
-    fuente VARCHAR(20),
-    verde INTEGER DEFAULT 0,
-    azul INTEGER DEFAULT 0,
-    blanca INTEGER DEFAULT 0,
-    negra INTEGER DEFAULT 0,
-    total INTEGER DEFAULT 0,
-    confianza_avg FLOAT DEFAULT 0,
-    inferencia_ms FLOAT DEFAULT 0
-);"
-```
+La tabla `detecciones` se crea automáticamente al levantar los contenedores gracias al archivo `init.sql` montado en el servicio `postgres`. No es necesario crearla manualmente.
 
 ---
 

@@ -7,7 +7,7 @@
 
 ## Descripción general
 
-API REST para la detección y clasificación de canicas (maras) en imágenes y videos usando el modelo YOLOv8s. Soporta inferencia sobre imágenes estáticas, videos completos y envío de resultados desde la app móvil. Los resultados se persisten automáticamente en una base de datos PostgreSQL.
+API REST para la detección y clasificación de canicas (maras) en imágenes y videos usando el modelo YOLOv8s. Soporta inferencia sobre imágenes estáticas, videos completos y envío de resultados desde la app móvil. Los resultados de imagen y cámara se persisten automáticamente en PostgreSQL. Las detecciones de video desde el frontend Streamlit no se guardan en BD.
 
 **Clases detectadas:**
 
@@ -139,7 +139,7 @@ Realiza inferencia sobre una imagen y retorna el **PNG anotado con bounding boxe
 
 #### `POST /predict/video`
 
-Realiza inferencia sobre un video completo, frame a frame. Retorna el **MP4 anotado**. Guarda un resumen acumulado en PostgreSQL al finalizar (`fuente='video'`).
+Realiza inferencia sobre un video completo, frame a frame. Retorna el **MP4 anotado**. Por defecto guarda un resumen acumulado en PostgreSQL al finalizar (`fuente='video'`); pasa `save=false` para omitir el guardado. El frontend Streamlit siempre envía `save=false`.
 
 **Parámetros (form-data):**
 
@@ -149,6 +149,7 @@ Realiza inferencia sobre un video completo, frame a frame. Retorna el **MP4 anot
 | `conf`        | float | ❌        | `0.5`   | Umbral de confianza                                  |
 | `iou`         | float | ❌        | `0.45`  | Umbral de IoU                                        |
 | `skip_frames` | int   | ❌        | `1`     | Procesa 1 de cada N frames (1 = todos los frames)    |
+| `save`        | bool  | ❌        | `true`  | Si `false`, no guarda el resultado en PostgreSQL     |
 
 **Respuesta `200 OK`:**
 - `Content-Type: video/mp4`
