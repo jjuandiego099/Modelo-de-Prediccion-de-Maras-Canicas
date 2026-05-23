@@ -134,13 +134,6 @@ App movil construida con ExpoGo que accede a la API y a postgres [EXPOGO](https:
 #### 📷 Imagen
 Sube una imagen en JPG, PNG, BMP o WEBP. La app muestra la imagen original lado a lado con la imagen anotada, métricas de detección (total, confianza media, tiempo de inferencia, resolución) y tabla detallada de cada detección con sus coordenadas.
 
-#### 🎬 Video
-Sube un video MP4, AVI, MOV o MKV (hasta 500 MB). La API procesa frame a frame y retorna el video completo con las detecciones dibujadas. Las detecciones de video **no se guardan en la base de datos**. Incluye botón de descarga del video anotado.
-
-#### 📹 Cámara en vivo
-Dos modos:
-- **Stream en tiempo real** usando `streamlit-webrtc` — cada frame se envía a la API y se devuelve anotado en vivo
-- **Foto única** con `st.camera_input` — captura un momento y lo envía a la API
 
 #### 📊 Estadísticas
 Panel de resultados históricos conectado a PostgreSQL:
@@ -152,6 +145,13 @@ Panel de resultados históricos conectado a PostgreSQL:
 - **Umbral de confianza** — slider 0.1 a 1.0 (recomendado 0.50–0.65)
 - **Umbral IoU (NMS)** — slider 0.1 a 1.0 (recomendado 0.40–0.50)
 - **Indicador de estado** de la API en tiempo real
+
+### ℹ️ Info
+Describe brevemente el proyecto, las categorias de canicas a detectar y una breve explcacion de las variables de configuración 
+- Descripción del proyecto
+- Tecnologias utilizadas
+- Categorias de maras o canicas
+- Explicación de las varables de configuración(Umbral de confianz y Umbral de IoU)
 
 ---
 
