@@ -359,10 +359,12 @@ async def predict_video(
     conf:        float = 0.5,
     iou:         float = 0.45,
     skip_frames: int   = 1,
+    save:        bool  = True,
 ):
     """
-    Inferencia sobre video completo. Guarda un registro de resumen en PostgreSQL
+    Inferencia sobre video completo. Por defecto guarda un registro de resumen en PostgreSQL
     al finalizar (con fuente='video' y las detecciones acumuladas de todos los frames).
+    Pasa save=False para omitir el guardado en BD.
     """
     if model is None:
         raise HTTPException(status_code=503, detail="Modelo no disponible")
@@ -411,8 +413,9 @@ async def predict_video(
         writer.release()
         elapsed_ms = (time.time() - t_start) * 1000
 
-        # Guardar resumen del video en PostgreSQL
-        guardar_deteccion("video", all_detections, elapsed_ms)
+        # Guardar resumen del video en PostgreSQL (solo si save=True)
+        if save:
+            guardar_deteccion("video", all_detections, elapsed_ms)
 
         fixed_tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
         fixed_tmp.close()

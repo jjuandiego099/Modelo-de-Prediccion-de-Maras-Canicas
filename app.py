@@ -198,7 +198,7 @@ def api_predict_video(base_url, video_bytes, filename, conf, iou, skip=1):
         r = requests.post(
             f"{base_url}/predict/video",
             files={"file": (filename, video_bytes, "video/mp4")},
-            params={"conf": conf, "iou": iou, "skip_frames": skip},
+            params={"conf": conf, "iou": iou, "skip_frames": skip, "save": False},
             timeout=300,  # 5 minutos de timeout para videos largos
         )
         if r.status_code == 200:
